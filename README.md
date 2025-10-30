@@ -20,6 +20,8 @@ A modern landing page with an intelligent AI assistant that uses Google Gemini a
 - **Platform**: Netlify
 - **Version Control**: Git
 
+# Working in progress - Currently running locally, will be deployed to Netlify
+
 ---
 [PT-BR]
 # 🤖 Agent IA - Landing Page Inteligente
