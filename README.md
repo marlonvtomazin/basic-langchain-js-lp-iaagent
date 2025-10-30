@@ -1,3 +1,27 @@
+[EN]
+# 🤖 AI Agent - Smart Landing Page
+
+A modern landing page with an intelligent AI assistant that uses Google Gemini and Tavily Search to provide accurate answers and up-to-date information.
+
+## 🚀 Features
+
+- **💬 Smart Chat**: Real-time, intuitive conversation interface
+- **🔍 Real-time Search**: Integration with Tavily Search for current information
+- **📚 Conversation History**: Maintains complete dialogue context
+- **🎯 Contextual Responses**: Adapts to your specific business theme
+- **⚡ Serverless Architecture**: Powered by Netlify Functions
+
+## 🛠️ Technologies
+
+- **Frontend**: HTML5, CSS3, JavaScript (ES6+)
+- **Backend**: Netlify Functions (Node.js)
+- **AI Model**: Google Gemini 2.5 Flash
+- **Search Engine**: Tavily Search
+- **Platform**: Netlify
+- **Version Control**: Git
+
+---
+[PT-BR]
 # 🤖 Agent IA - Landing Page Inteligente
 
 Uma landing page moderna com um assistente de IA inteligente que utiliza Google Gemini e Tavily Search para fornecer respostas precisas e informações atualizadas.
