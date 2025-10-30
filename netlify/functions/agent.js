@@ -1,6 +1,38 @@
 const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
 const { TavilySearch } = require("@langchain/tavily");
 
+// CONFIGURAÇÃO DO AGENTE (FÁCIL DE MODIFICAR)
+const AGENT_CONFIG = {
+    // Prompt do sistema - PODE SER MODIFICADO FACILMENTE
+    systemPrompt: `Você é um Assistente farmacêutico especializado em medicamentos e dosagens.
+Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
+Seja claro, conciso e forneça informações precisas.`,
+
+    // Configuração do modelo
+    modelConfig: {
+        model: 'gemini-2.5-flash',
+        temperature: 0.2,
+        apiKey: process.env.GOOGLE_API_KEY,
+    },
+
+    // Configuração da busca
+    searchConfig: {
+        maxResults: 3,
+        apiKey: process.env.TAVILY_API_KEY,
+    },
+
+    // Quando usar busca (PODE SER MODIFICADO)
+    shouldSearchPrompt: `Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
+
+Pergunta: "{question}"
+
+Responda APENAS com "SIM" ou "NÃO":
+- "SIM": para informações recentes, dosagens específicas, atualizações, interações medicamentosas
+- "NÃO": para conceitos básicos, definições, perguntas gerais
+
+Resposta:`
+};
+
 exports.handler = async (event) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
@@ -15,67 +47,24 @@ exports.handler = async (event) => {
     try {
         const { message, chatHistory = [] } = JSON.parse(event.body);
         
-        const llm = new ChatGoogleGenerativeAI({
-            model: 'gemini-2.5-flash',
-            temperature: 0.2,
-            apiKey: process.env.GOOGLE_API_KEY,
-        });
-
-        const searchTool = new TavilySearch({ 
-            maxResults: 2,
-            apiKey: process.env.TAVILY_API_KEY,
-        });
+        const llm = new ChatGoogleGenerativeAI(AGENT_CONFIG.modelConfig);
+        const searchTool = new TavilySearch(AGENT_CONFIG.searchConfig);
         
-        const messages = [
-            {
-                role: "system",
-                content: `Você é um Assistente farmacêutico especializado em medicamentos e dosagens.
-                        Responda sempre em texto puro, nunca retorne objetos JSON ou estruturas complexas.
-                        Seja claro e conciso nas respostas.`
-            },
-            ...chatHistory,
-            { role: "human", content: message }
-        ];
-
-        console.log('📤 Enviando para Gemini:', message);
+        console.log('📤 Pergunta:', message);
         
-        // 🔥 MUDANÇA: Não passar tools inicialmente
-        const response = await llm.invoke(messages);
-        
-        console.log('📥 Resposta bruta do Gemini:', response);
-        
-        // 🔥 CORREÇÃO: Extrair conteúdo de forma robusta
+        // DECIDIR SE FAZ BUSCA
+        const needsSearch = await shouldSearch(message, llm);
         let responseContent = '';
-        
-        if (typeof response.content === 'string') {
-            responseContent = response.content;
-        } else if (response.content && response.content[0] && response.content[0].text) {
-            // Se for array com objetos text
-            responseContent = response.content[0].text;
-        } else if (response.text) {
-            // Se tiver propriedade text direta
-            responseContent = response.text;
+
+        if (needsSearch) {
+            console.log('🔍 Buscando informações...');
+            responseContent = await getResponseWithSearch(message, llm, searchTool);
         } else {
-            // Fallback: converter para string
-            responseContent = JSON.stringify(response);
-            console.warn('⚠️  Resposta inesperada, usando fallback:', responseContent);
-            
-            // Tentar extrair texto de qualquer maneira
-            try {
-                const responseStr = JSON.stringify(response);
-                if (responseStr.includes('"text"')) {
-                    const match = responseStr.match(/"text":"([^"]+)"/);
-                    if (match) responseContent = match[1];
-                }
-            } catch (e) {
-                responseContent = "Desculpe, não consegui processar a resposta.";
-            }
+            console.log('💭 Respondendo com conhecimento interno...');
+            responseContent = await getDirectResponse(message, chatHistory, llm);
         }
-
-        // Limpar possíveis caracteres especiais
-        responseContent = responseContent.replace(/\\n/g, '\n').trim();
-
-        console.log('💊 Resposta final:', responseContent);
+        
+        console.log('💊 Resposta:', responseContent);
 
         return {
             statusCode: 200,
@@ -90,7 +79,7 @@ exports.handler = async (event) => {
             })
         };
     } catch (error) {
-        console.error('❌ Erro completo:', error);
+        console.error('❌ Erro:', error);
         return {
             statusCode: 500,
             headers,
@@ -98,3 +87,55 @@ exports.handler = async (event) => {
         };
     }
 };
+
+// FUNÇÃO: Decidir se faz busca
+async function shouldSearch(question, llm) {
+    try {
+        const prompt = AGENT_CONFIG.shouldSearchPrompt.replace('{question}', question);
+        const response = await llm.invoke([{ role: "human", content: prompt }]);
+        const decision = String(response.content).trim().toUpperCase();
+        console.log('🤔 Decisão de busca:', decision);
+        return decision === 'SIM';
+    } catch (error) {
+        console.log('⚠️  Erro na decisão, buscando por padrão');
+        return true; // Fallback: busca por padrão
+    }
+}
+
+// FUNÇÃO: Resposta com busca
+async function getResponseWithSearch(question, llm, searchTool) {
+    const searchResult = await searchTool.invoke({
+        query: `informações farmacêuticas sobre: ${question}`
+    });
+    
+    const enhancedPrompt = `${AGENT_CONFIG.systemPrompt}
+
+    Baseie sua resposta nestas informações encontradas:
+
+    INFORMAÇÕES ENCONTRADAS:
+    ${JSON.stringify(searchResult)}
+
+    PERGUNTA DO USUÁRIO:
+    ${question}
+
+    Responda de forma clara e organizada:`;
+
+    const response = await llm.invoke([
+        { role: "system", content: enhancedPrompt },
+        { role: "human", content: question }
+    ]);
+    
+    return String(response.content).trim();
+}
+
+// FUNÇÃO: Resposta direta
+async function getDirectResponse(question, chatHistory, llm) {
+    const messages = [
+        { role: "system", content: AGENT_CONFIG.systemPrompt },
+        ...chatHistory,
+        { role: "human", content: question }
+    ];
+
+    const response = await llm.invoke(messages);
+    return String(response.content).trim();
+}
