@@ -1,11 +1,26 @@
 {
-  "name": "ai-agent-landing-page",
+  "name": "basic-langchain-js-lp-iaagent",
   "version": "1.0.0",
-  "description": "Landing page with AI agent",
-  "dependencies": {
-    "@google/generative-ai": "^0.21.0"
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "engines": {
-    "node": ">=18"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marlonvtomazin/basic-langchain-js-lp-iaagent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/marlonvtomazin/basic-langchain-js-lp-iaagent/issues"
+  },
+  "homepage": "https://github.com/marlonvtomazin/basic-langchain-js-lp-iaagent#readme",
+  "dependencies": {
+    "@langchain/google-genai": "^1.0.0",
+    "@langchain/tavily": "^1.0.0",
+    "dotenv": "^17.2.3",
+    "netlify-cli": "^23.9.5"
   }
 }
