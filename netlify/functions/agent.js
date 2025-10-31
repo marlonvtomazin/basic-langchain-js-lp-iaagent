@@ -1,12 +1,3 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-
-// CONFIGURAÇÃO DO AGENTE
-const AGENT_CONFIG = {
-    systemPrompt: `Você é um Assistente farmacêutico especializado em medicamentos e dosagens.
-Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
-Seja claro, conciso e forneça informações precisas.`,
-};
-
 exports.handler = async (event) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
@@ -19,62 +10,58 @@ exports.handler = async (event) => {
     }
 
     try {
-        const { message, chatHistory = [] } = JSON.parse(event.body);
+        const { message } = JSON.parse(event.body);
         
-        console.log('📤 Pergunta:', message);
-        
-        // Inicializar Google Generative AI diretamente
-        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
-            generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 1000,
-            }
+        console.log('📤 Pergunta recebida:', message);
+
+        // Chamada DIRETA para a API do Google Gemini
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GOOGLE_API_KEY}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: `Você é um assistente farmacêutico especializado. Responda de forma clara e concisa.
+
+Pergunta: ${message}
+
+Responda:`
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 1000,
+                }
+            })
         });
 
-        // Preparar histórico de conversa
-        const chat = model.startChat({
-            history: [
-                {
-                    role: "user",
-                    parts: [{ text: AGENT_CONFIG.systemPrompt }],
-                },
-                {
-                    role: "model",
-                    parts: [{ text: "Entendido. Sou um assistente farmacêutico especializado e estou pronto para ajudar." }],
-                },
-                ...chatHistory.map(msg => ({
-                    role: msg.role === "human" ? "user" : "model",
-                    parts: [{ text: msg.content }],
-                }))
-            ],
-        });
+        if (!response.ok) {
+            throw new Error(`Erro na API: ${response.status}`);
+        }
 
-        const result = await chat.sendMessage(message);
-        const responseText = result.response.text();
+        const data = await response.json();
         
-        console.log('💊 Resposta:', responseText);
+        // Extrair resposta
+        const responseText = data.candidates[0].content.parts[0].text;
+        
+        console.log('💊 Resposta gerada:', responseText);
 
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({ 
-                response: responseText,
-                chatHistory: [
-                    ...chatHistory, 
-                    { role: "human", content: message },
-                    { role: "assistant", content: responseText }
-                ]
+                response: responseText
             })
         };
     } catch (error) {
-        console.error('❌ Erro completo:', error);
+        console.error('❌ Erro:', error);
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({ 
-                error: "Erro interno do servidor",
+                error: "Desculpe, estou com problemas técnicos.",
                 details: error.message 
             })
         };
