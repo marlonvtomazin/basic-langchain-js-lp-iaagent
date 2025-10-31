@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assistente Farmacêutico IA</title>
+    <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script> 
+    
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -68,13 +70,15 @@
 <body>
     <div class="chat-container">
         <h1>💊 Assistente Farmacêutico</h1>
+        <div data-netlify-identity-menu></div> 
+        
         <div id="chat-messages">
             <div class="message assistant-message">
-                Olá! Sou seu assistente farmacêutico. Como posso ajudar com medicamentos hoje?
+                Olá! Sou seu assistente farmacêutico. Por favor, faça login para usar.
             </div>
         </div>
         <div class="input-container">
-            <input type="text" id="user-input" placeholder="Pergunte sobre medicamentos, dosagens...">
+            <input type="text" id="user-input" placeholder="Pergunte sobre medicamentos...">
             <button id="send-btn">Enviar</button>
         </div>
     </div>

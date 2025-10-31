@@ -33,65 +33,81 @@ Responda APENAS com "SIM" ou "NÃO":
 Resposta:`
 };
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => { // NOVO: 'context' para dados do Identity
+    
+    // NOVO: Proteção da função. Verifica se o Netlify autenticou um usuário.
+    if (!context.clientContext || !context.clientContext.user) {
+        console.error("🚫 Acesso negado: Usuário não autenticado.");
+        return {
+            statusCode: 401,
+            body: JSON.stringify({ 
+                error: "Acesso não autorizado. Por favor, faça login." 
+            })
+        };
+    }
+    
     const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*', // Necessário para CORS
     };
 
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
+    if (event.httpMethod !== 'POST') {
+        return {
+            statusCode: 405,
+            headers,
+            body: JSON.stringify({ error: 'Método não permitido' }),
+        };
     }
 
     try {
-        const { message, chatHistory = [] } = JSON.parse(event.body);
-        
+        const { message: question, chatHistory } = JSON.parse(event.body);
+
+        if (!question) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ error: 'Mensagem não fornecida' }),
+            };
+        }
+
+        // Inicializa o LLM e a Ferramenta de Busca
         const llm = new ChatGoogleGenerativeAI(AGENT_CONFIG.modelConfig);
         const searchTool = new TavilySearch(AGENT_CONFIG.searchConfig);
         
-        console.log('📤 Pergunta:', message);
-        
-        // DECIDIR SE FAZ BUSCA
-        const needsSearch = await shouldSearch(message, llm);
-        let responseContent = '';
+        // Etapa 1: Decidir se precisa de busca
+        const needsSearch = await decideIfSearchIsNeeded(question, llm, AGENT_CONFIG.shouldSearchPrompt);
+
+        let responseText;
 
         if (needsSearch) {
-            console.log('🔍 Buscando informações...');
-            responseContent = await getResponseWithSearch(message, llm, searchTool);
+            // Etapa 2A: Resposta com busca (RAG)
+            responseText = await getResponseWithSearch(question, llm, searchTool);
         } else {
-            console.log('💭 Respondendo com conhecimento interno...');
-            responseContent = await getDirectResponse(message, chatHistory, llm);
+            // Etapa 2B: Resposta direta (Somente contexto e memória)
+            responseText = await getDirectResponse(question, chatHistory, llm);
         }
-        
-        console.log('💊 Resposta:', responseContent);
 
         return {
             statusCode: 200,
             headers,
-            body: JSON.stringify({ 
-                response: responseContent,
-                chatHistory: [
-                    ...chatHistory, 
-                    { role: "human", content: message },
-                    { role: "assistant", content: responseContent }
-                ]
-            })
+            body: JSON.stringify({ response: responseText }),
         };
+
     } catch (error) {
-        console.error('❌ Erro:', error);
+        console.error('❌ Erro na execução da função:', error);
         return {
             statusCode: 500,
             headers,
-            body: JSON.stringify({ error: error.message })
+            body: JSON.stringify({ error: `Erro interno do servidor: ${error.message}` }),
         };
     }
 };
 
-// FUNÇÃO: Decidir se faz busca
-async function shouldSearch(question, llm) {
+
+// FUNÇÃO: Decidir se é necessário buscar
+async function decideIfSearchIsNeeded(question, llm, promptTemplate) {
     try {
-        const prompt = AGENT_CONFIG.shouldSearchPrompt.replace('{question}', question);
+        const prompt = promptTemplate.replace('{question}', question);
         const response = await llm.invoke([{ role: "human", content: prompt }]);
         const decision = String(response.content).trim().toUpperCase();
         console.log('🤔 Decisão de busca:', decision);
@@ -132,10 +148,11 @@ async function getResponseWithSearch(question, llm, searchTool) {
 async function getDirectResponse(question, chatHistory, llm) {
     const messages = [
         { role: "system", content: AGENT_CONFIG.systemPrompt },
-        ...chatHistory,
+        ...chatHistory.map(msg => ({ role: msg.role, content: msg.content })),
         { role: "human", content: question }
     ];
-
+    
     const response = await llm.invoke(messages);
+    
     return String(response.content).trim();
 }
