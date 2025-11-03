@@ -67,28 +67,34 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        const { message: question, chatHistory, agentId } = JSON.parse(event.body); // NOVO: Recebe agentId
+        const { message: question, chatHistory, agentId } = JSON.parse(event.body); 
         
         // Etapa 1: Obter Configurações do Agente do MongoDB
         let agentConfig = FALLBACK_AGENT_CONFIG;
+        
         try {
             const db = await connectToDatabase(MONGODB_URI);
             const collection = db.collection(COLLECTION_NAME);
             
-            // Busca o agente com base no ID (você pode mudar para AgentName se preferir)
-            const agentData = await collection.findOne({ AgentID: parseInt(agentId) || 1 });
+            // Busca o agente com base no ID (usa 1 se agentId não for fornecido ou for inválido)
+            const agentToFind = parseInt(agentId) || 1;
+            const agentData = await collection.findOne({ AgentID: agentToFind });
             
             if (agentData) {
+                console.log(`✅ Agente ${agentToFind} (${agentData.AgentName}) encontrado no DB.`);
                 agentConfig = {
                     AgentID: agentData.AgentID,
                     AgentName: agentData.AgentName,
                     systemPrompt: agentData.systemPrompt,
                     shouldSearchPrompt: agentData.shouldSearchPrompt,
-                    // Adicione aqui todos os outros campos dinâmicos que você criar
                 };
+            } else {
+                console.log(`⚠️ Agente ${agentToFind} não encontrado no DB. Usando configuração padrão.`);
             }
+
         } catch (dbError) {
-            console.error('❌ Erro de conexão/busca no MongoDB, usando config padrão:', dbError.message);
+            // NOVO LOG DE ERRO APRIMORADO AQUI:
+            console.error('❌ ERRO AO CONECTAR/BUSCAR NO MONGO:', dbError.message);
             // Continua com a configuração padrão
         }
 
@@ -152,7 +158,7 @@ async function decideIfSearchIsNeeded(question, llm, promptTemplate) {
 // FUNÇÃO: Resposta com busca (Recebe o systemPrompt dinâmico)
 async function getResponseWithSearch(question, llm, searchTool, systemPrompt) {
     const searchResult = await searchTool.invoke({
-        query: `informações sobre: ${question}` // Query mais genérica para funcionar com qualquer agente
+        query: `informações sobre: ${question}` 
     });
     
     const enhancedPrompt = `${systemPrompt}
