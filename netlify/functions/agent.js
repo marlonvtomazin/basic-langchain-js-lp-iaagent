@@ -23,14 +23,14 @@ Seja claro, conciso e forneça informações precisas.`,
 
     // Quando usar busca (PODE SER MODIFICADO)
     shouldSearchPrompt: `Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
+    
+    Pergunta: "{question}"
 
-Pergunta: "{question}"
+    Responda APENAS com "SIM" ou "NÃO":
+    - "SIM": para informações recentes, dosagens específicas, atualizações, interações medicamentosas
+    - "NÃO": para conceitos básicos, definições, perguntas gerais
 
-Responda APENAS com "SIM" ou "NÃO":
-- "SIM": para informações recentes, dosagens específicas, atualizações, interações medicamentosas
-- "NÃO": para conceitos básicos, definições, perguntas gerais
-
-Resposta:`
+    Resposta:`
 };
 
 exports.handler = async (event, context) => { // NOVO: 'context' para dados do Identity
