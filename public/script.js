@@ -1,22 +1,30 @@
 class FarmaceuticoAgent {
     constructor() {
         this.chatHistory = [];
-        // O Netlify Identity é carregado globalmente no index.html
         this.apiUrl = '/.netlify/functions/agent';
+        this.selectedAgentId = 1; // ID padrão: 1 (Farmacêutico)
+        
+        // NOVO: Adiciona listener para a seleção de agente
+        document.getElementById('agent-select').addEventListener('change', (e) => {
+            this.selectedAgentId = e.target.value;
+            this.chatHistory = []; // Limpa o histórico ao mudar o agente
+            document.getElementById('chat-messages').innerHTML = 
+                `<div class="message assistant-message">Novo Agente (ID: ${this.selectedAgentId}) selecionado. Como posso ajudar?</div>`;
+        });
     }
 
     async sendMessage(message) {
-        // NOVO: Obter o usuário logado do widget
+        // Obter o usuário logado do widget
         const user = netlifyIdentity.currentUser(); 
         
-        // NOVO: Verifica se o usuário está logado
+        // Verifica se o usuário está logado
         if (!user) {
             alert('Você precisa estar logado para usar o assistente.');
             netlifyIdentity.open(); // Abre o modal de login
             return "Por favor, faça login para continuar.";
         }
 
-        // NOVO: Obtém o token de autenticação JWT
+        // Obtém o token de autenticação JWT
         const token = await user.jwt(); 
 
         try {
@@ -24,16 +32,17 @@ class FarmaceuticoAgent {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    // NOVO: Adiciona o token no cabeçalho Authorization
+                    // Adiciona o token no cabeçalho Authorization
                     'Authorization': `Bearer ${token}` 
                 },
                 body: JSON.stringify({ 
                     message, 
-                    chatHistory: this.chatHistory 
+                    chatHistory: this.chatHistory,
+                    agentId: this.selectedAgentId // NOVO: Envia o ID do agente
                 })
             });
 
-            // NOVO: Se o backend retornar 401 (Não autorizado), forçar logout
+            // Se o backend retornar 401 (Não autorizado), forçar logout
             if (response.status === 401) {
                 netlifyIdentity.logout();
                 alert('Sessão expirada ou não autorizada. Faça login novamente.');
@@ -68,8 +77,31 @@ function addMessageToChat(sender, message) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// NOVO: Função para carregar Agentes (Por enquanto, apenas o Agente Padrão)
+async function loadAgentsList() {
+    const selectElement = document.getElementById('agent-select');
+    
+    // Adiciona a opção padrão (Farmacêutico) - ID 1
+    let defaultAgent = { AgentID: 1, AgentName: "Assistente Farmacêutico (Padrão)" };
+
+    const option = document.createElement('option');
+    option.value = defaultAgent.AgentID;
+    option.textContent = defaultAgent.AgentName;
+    selectElement.appendChild(option);
+
+    // *******************************************************************
+    // Lembrete: Para ter vários agentes, você precisará criar uma
+    // segunda Netlify Function (ex: /getAgents) para buscar a lista
+    // completa do MongoDB e popular este seletor.
+    // *******************************************************************
+}
+
+
 // Inicializar agent
 const agent = new FarmaceuticoAgent();
+
+// Chama a função para popular a lista ao carregar a página
+loadAgentsList();
 
 // Event listeners
 document.getElementById('send-btn').addEventListener('click', sendMessage);
@@ -83,7 +115,7 @@ async function sendMessage() {
     const input = document.getElementById('user-input');
     const message = input.value.trim();
     
-    // NOVO: Desativa o envio se o usuário não estiver logado. A verificação principal está no agente.
+    // Desativa o envio se o usuário não estiver logado.
     if (!netlifyIdentity.currentUser()) {
         alert('Por favor, faça login para enviar mensagens.');
         netlifyIdentity.open();
@@ -121,7 +153,7 @@ async function sendMessage() {
     }
 }
 
-// NOVO: Abre o modal de login quando o widget é inicializado
+// Abre o modal de login quando o widget é inicializado
 netlifyIdentity.on('init', user => {
     if (!user) {
         netlifyIdentity.open();
