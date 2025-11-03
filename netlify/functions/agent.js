@@ -9,16 +9,14 @@ const DB_NAME = 'ai_agents_db'; // Nome do seu banco de dados
 const COLLECTION_NAME = 'agents'; // Nome da coleção de agentes
 
 // Função para conectar ao banco ou usar o cache
+// netlify/functions/agent.js
 async function connectToDatabase(uri) {
     if (cachedDb) {
         return cachedDb;
     }
 
-    // Configurações recomendadas para o driver Node.js
-    const client = await MongoClient.connect(uri, { 
-        useNewUrlParser: true, 
-        useUnifiedTopology: true 
-    });
+    // Opções obsoletas removidas
+    const client = await MongoClient.connect(uri);
     
     const db = client.db(DB_NAME);
     cachedDb = db;
