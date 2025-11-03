@@ -1,37 +1,27 @@
 const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
 const { TavilySearch } = require("@langchain/tavily");
-const { MongoClient } = require('mongodb'); // NOVO: Import do MongoDB
 
-// Conexão e Caching do Banco de Dados (Melhora o desempenho no Netlify)
-let cachedDb = null;
-const MONGODB_URI = process.env.MONGO_URI;
-const DB_NAME = 'ai_agents_db'; // Nome do seu banco de dados no Atlas
-const COLLECTION_NAME = 'agents'; // Nome da coleção onde os agentes estão salvos
-
-// Função para conectar ao banco ou usar o cache
-async function connectToDatabase(uri) {
-    if (cachedDb) {
-        return cachedDb;
-    }
-
-    const client = await MongoClient.connect(uri, { 
-        useNewUrlParser: true, 
-        useUnifiedTopology: true 
-    });
-    
-    const db = client.db(DB_NAME);
-    cachedDb = db;
-    return db;
-}
-
-// Configurações padrão caso o banco falhe ou o agente não seja encontrado
-const FALLBACK_AGENT_CONFIG = {
-    // ID 1 é o agente farmacêutico padrão
-    AgentID: 1, 
-    AgentName: "Assistente Farmacêutico",
-    systemPrompt: `Você é um Assistente farmacêutico especializado em medicamentos e dosagens. 
+// CONFIGURAÇÃO DO AGENTE (FÁCIL DE MODIFICAR)
+const AGENT_CONFIG = {
+    // Prompt do sistema - PODE SER MODIFICADO FACILMENTE
+    systemPrompt: `Você é um Assistente farmacêutico especializado em medicamentos e dosagens.
 Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
 Seja claro, conciso e forneça informações precisas.`,
+
+    // Configuração do modelo
+    modelConfig: {
+        model: 'gemini-2.5-flash',
+        temperature: 0.2,
+        apiKey: process.env.GOOGLE_API_KEY,
+    },
+
+    // Configuração da busca
+    searchConfig: {
+        maxResults: 3,
+        apiKey: process.env.TAVILY_API_KEY,
+    },
+
+    // Quando usar busca (PODE SER MODIFICADO)
     shouldSearchPrompt: `Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
 
 Pergunta: "{question}"
@@ -40,15 +30,14 @@ Responda APENAS com "SIM" ou "NÃO":
 - "SIM": para informações recentes, dosagens específicas, atualizações, interações medicamentosas
 - "NÃO": para conceitos básicos, definições, perguntas gerais
 
-Resposta:`,
+Resposta:`
 };
 
-exports.handler = async (event, context) => { 
-    // Garante que o contexto de login está disponível
-    context.callbackWaitsForEmptyEventLoop = false; // Melhoria de desempenho no Netlify
+exports.handler = async (event, context) => { // NOVO: 'context' para dados do Identity
     
-    // Proteção da função: Identity (mantida)
+    // NOVO: Proteção da função. Verifica se o Netlify autenticou um usuário.
     if (!context.clientContext || !context.clientContext.user) {
+        console.error("🚫 Acesso negado: Usuário não autenticado.");
         return {
             statusCode: 401,
             body: JSON.stringify({ 
@@ -59,71 +48,43 @@ exports.handler = async (event, context) => {
     
     const headers = {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': '*', // Necessário para CORS
     };
 
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
+        return {
+            statusCode: 405,
+            headers,
+            body: JSON.stringify({ error: 'Método não permitido' }),
+        };
     }
 
     try {
-        const { message: question, chatHistory, agentId } = JSON.parse(event.body); 
-        
-        // Etapa 1: Obter Configurações do Agente do MongoDB
-        let agentConfig = FALLBACK_AGENT_CONFIG;
-        
-        try {
-            const db = await connectToDatabase(MONGODB_URI);
-            const collection = db.collection(COLLECTION_NAME);
-            
-            // Busca o agente com base no ID (usa 1 se agentId não for fornecido ou for inválido)
-            const agentToFind = parseInt(agentId) || 1;
-            const agentData = await collection.findOne({ AgentID: agentToFind });
-            
-            if (agentData) {
-                console.log(`✅ Agente ${agentToFind} (${agentData.AgentName}) encontrado no DB.`);
-                agentConfig = {
-                    AgentID: agentData.AgentID,
-                    AgentName: agentData.AgentName,
-                    systemPrompt: agentData.systemPrompt,
-                    shouldSearchPrompt: agentData.shouldSearchPrompt,
-                };
-            } else {
-                console.log(`⚠️ Agente ${agentToFind} não encontrado no DB. Usando configuração padrão.`);
-            }
+        const { message: question, chatHistory } = JSON.parse(event.body);
 
-        } catch (dbError) {
-            // NOVO LOG DE ERRO APRIMORADO AQUI:
-            console.error('❌ ERRO AO CONECTAR/BUSCAR NO MONGO:', dbError.message);
-            // Continua com a configuração padrão
+        if (!question) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ error: 'Mensagem não fornecida' }),
+            };
         }
 
-        // Configuração LLM e Tavily (Agora usa as variáveis de ambiente)
-        const modelConfig = {
-            model: 'gemini-2.5-flash',
-            temperature: 0.2,
-            apiKey: process.env.GOOGLE_API_KEY,
-        };
-        const searchConfig = {
-            maxResults: 3,
-            apiKey: process.env.TAVILY_API_KEY,
-        };
-
         // Inicializa o LLM e a Ferramenta de Busca
-        const llm = new ChatGoogleGenerativeAI(modelConfig);
-        const searchTool = new TavilySearch(searchConfig);
+        const llm = new ChatGoogleGenerativeAI(AGENT_CONFIG.modelConfig);
+        const searchTool = new TavilySearch(AGENT_CONFIG.searchConfig);
         
-        // Etapa 2: Decidir se precisa de busca usando o prompt dinâmico
-        const needsSearch = await decideIfSearchIsNeeded(question, llm, agentConfig.shouldSearchPrompt);
+        // Etapa 1: Decidir se precisa de busca
+        const needsSearch = await decideIfSearchIsNeeded(question, llm, AGENT_CONFIG.shouldSearchPrompt);
 
         let responseText;
 
         if (needsSearch) {
-            // Etapa 3A: Resposta com busca (RAG)
-            responseText = await getResponseWithSearch(question, llm, searchTool, agentConfig.systemPrompt);
+            // Etapa 2A: Resposta com busca (RAG)
+            responseText = await getResponseWithSearch(question, llm, searchTool);
         } else {
-            // Etapa 3B: Resposta direta (Somente contexto e memória)
-            responseText = await getDirectResponse(question, chatHistory, llm, agentConfig.systemPrompt);
+            // Etapa 2B: Resposta direta (Somente contexto e memória)
+            responseText = await getDirectResponse(question, chatHistory, llm);
         }
 
         return {
@@ -133,7 +94,7 @@ exports.handler = async (event, context) => {
         };
 
     } catch (error) {
-        console.error('❌ Erro na execução da função principal:', error);
+        console.error('❌ Erro na execução da função:', error);
         return {
             statusCode: 500,
             headers,
@@ -143,25 +104,27 @@ exports.handler = async (event, context) => {
 };
 
 
-// FUNÇÃO: Decidir se é necessário buscar (Recebe o prompt dinâmico)
+// FUNÇÃO: Decidir se é necessário buscar
 async function decideIfSearchIsNeeded(question, llm, promptTemplate) {
     try {
         const prompt = promptTemplate.replace('{question}', question);
         const response = await llm.invoke([{ role: "human", content: prompt }]);
         const decision = String(response.content).trim().toUpperCase();
+        console.log('🤔 Decisão de busca:', decision);
         return decision === 'SIM';
     } catch (error) {
-        return true; 
+        console.log('⚠️  Erro na decisão, buscando por padrão');
+        return true; // Fallback: busca por padrão
     }
 }
 
-// FUNÇÃO: Resposta com busca (Recebe o systemPrompt dinâmico)
-async function getResponseWithSearch(question, llm, searchTool, systemPrompt) {
+// FUNÇÃO: Resposta com busca
+async function getResponseWithSearch(question, llm, searchTool) {
     const searchResult = await searchTool.invoke({
-        query: `informações sobre: ${question}` 
+        query: `informações farmacêuticas sobre: ${question}`
     });
     
-    const enhancedPrompt = `${systemPrompt}
+    const enhancedPrompt = `${AGENT_CONFIG.systemPrompt}
 
     Baseie sua resposta nestas informações encontradas:
 
@@ -181,10 +144,10 @@ async function getResponseWithSearch(question, llm, searchTool, systemPrompt) {
     return String(response.content).trim();
 }
 
-// FUNÇÃO: Resposta direta (Recebe o systemPrompt dinâmico)
-async function getDirectResponse(question, chatHistory, llm, systemPrompt) {
+// FUNÇÃO: Resposta direta
+async function getDirectResponse(question, chatHistory, llm) {
     const messages = [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: AGENT_CONFIG.systemPrompt },
         ...chatHistory.map(msg => ({ role: msg.role, content: msg.content })),
         { role: "human", content: question }
     ];

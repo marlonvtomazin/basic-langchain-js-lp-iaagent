@@ -21,7 +21,6 @@
     "@langchain/google-genai": "^1.0.0",
     "@langchain/tavily": "^1.0.0",
     "dotenv": "^17.2.3",
-    "mongodb": "^6.20.0",
     "netlify-cli": "^23.9.5"
   }
 }
