@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assistente Farmacêutico IA</title>
+    <title>Plataforma de Agentes IA</title>
     <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script> 
     
     <style>
@@ -65,20 +65,34 @@
         #send-btn:hover {
             background: #0056b3;
         }
+        /* Estilo para o seletor de agente */
+        #agent-select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <h1>💊 Assistente Farmacêutico</h1>
+        <h1>💊 Plataforma de Agentes IA</h1>
         <div data-netlify-identity-menu></div> 
         
+        <div style="margin-bottom: 15px;">
+            <label for="agent-select">Selecione o Agente:</label>
+            <select id="agent-select">
+                <option value="" disabled selected>Faça login para carregar.</option>
+            </select>
+        </div>
+
         <div id="chat-messages">
             <div class="message assistant-message">
-                Olá! Sou seu assistente farmacêutico. Por favor, faça login para usar.
+                Olá! Por favor, faça login e selecione um Agente para começar.
             </div>
         </div>
         <div class="input-container">
-            <input type="text" id="user-input" placeholder="Pergunte sobre medicamentos...">
+            <input type="text" id="user-input" placeholder="Digite sua mensagem...">
             <button id="send-btn">Enviar</button>
         </div>
     </div>
