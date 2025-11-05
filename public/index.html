@@ -79,18 +79,38 @@
         <h1>💊 Plataforma de Agentes IA</h1>
         <div data-netlify-identity-menu></div> 
         
-        <div style="margin-bottom: 15px;">
-            <label for="agent-select">Selecione o Agente:</label>
-            <select id="agent-select">
-                <option value="" disabled selected>Faça login para carregar.</option>
-            </select>
+        <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+            <label for="agent-select">Agente Ativo:</label>
+            <select id="agent-select" style="width: 60%;"></select>
+            <button id="toggle-form-btn" style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">+ Novo Agente</button>
         </div>
 
-        <div id="chat-messages">
-            <div class="message assistant-message">
-                Olá! Por favor, faça login e selecione um Agente para começar.
-            </div>
+        <div id="create-agent-form-container" style="display: none; border: 1px solid #ddd; padding: 15px; border-radius: 5px; margin-bottom: 20px; background-color: #f8f9fa;">
+            <h3>Criar Novo Agente</h3>
+            <form id="new-agent-form">
+                <div style="margin-bottom: 10px;">
+                    <label for="agent-name">Nome do Agente:</label>
+                    <input type="text" id="agent-name" required style="width: 100%; padding: 8px; margin-top: 5px;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="agent-function">Função/Descrição:</label>
+                    <textarea id="agent-function" required style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="system-prompt">Prompt do Sistema (Persona):</label>
+                    <textarea id="system-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;"></textarea>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label for="search-prompt">Prompt de Decisão de Busca:</label>
+                    <textarea id="search-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;"></textarea>
+                </div>
+                <button type="submit" id="save-agent-btn" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Salvar Agente</button>
+                <div id="form-message" style="margin-top: 10px; font-weight: bold;"></div>
+            </form>
         </div>
+        
+        <div id="chat-messages">
+            </div>
         <div class="input-container">
             <input type="text" id="user-input" placeholder="Digite sua mensagem...">
             <button id="send-btn">Enviar</button>
