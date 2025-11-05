@@ -2,9 +2,9 @@ class FarmaceuticoAgent {
     constructor() {
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
-        this.selectedAgentId = 1; // ID padrão: 1 (Farmacêutico)
+        this.selectedAgentId = 1; // ID padrão
         
-        // NOVO: Adiciona listener para a seleção de agente
+        // Listener para a seleção de agente
         document.getElementById('agent-select').addEventListener('change', (e) => {
             this.selectedAgentId = e.target.value;
             this.chatHistory = []; // Limpa o histórico ao mudar o agente
@@ -68,13 +68,13 @@ function addMessageToChat(sender, message) {
     const messageDiv = document.createElement('div');
     
     messageDiv.className = `message ${sender}-message`;
-    messageDiv.innerHTML = message; // Usa innerHTML para permitir o **negrito** no nome do agente
+    messageDiv.innerHTML = message; 
     
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// FUNÇÃO MODIFICADA: Carrega agentes do Netlify Function
+// FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
 async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
@@ -82,7 +82,6 @@ async function loadAgentsList() {
     try {
         const user = netlifyIdentity.currentUser();
         if (!user) {
-             // Se não estiver logado, não tenta buscar. Deixa a mensagem de login.
              selectElement.innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
              return;
         }
@@ -102,22 +101,26 @@ async function loadAgentsList() {
 
         const agents = await response.json();
         
-        selectElement.innerHTML = ''; // Limpa o "Carregando"
+        selectElement.innerHTML = ''; 
         
         if (agents && agents.length > 0) {
-            agents.forEach(agent => {
+            agents.forEach(agentItem => {
                 const option = document.createElement('option');
-                option.value = agent.AgentID;
-                option.textContent = agent.AgentName;
+                option.value = agentItem.AgentID;
+                option.textContent = agentItem.AgentName;
                 selectElement.appendChild(option);
             });
-            // Define o primeiro agente como selecionado por padrão na inicialização
-            if (agents[0]) {
-                 agent.selectedAgentId = agents[0].AgentID;
-                 addMessageToChat('assistant', `Agente **${agents[0].AgentName}** carregado. Comece a conversar!`);
-            }
+            
+            // Seleciona o primeiro agente ou o agente ativo
+            const selectedAgentId = agent.selectedAgentId || (agents[0] ? agents[0].AgentID : 1);
+            selectElement.value = selectedAgentId;
+            
+            const selectedName = selectElement.options[selectElement.selectedIndex].textContent;
+            agent.selectedAgentId = selectedAgentId;
+            addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
+            
         } else {
-             selectElement.innerHTML = '<option value="1">Assistente Farmacêutico (Padrão)</option>';
+             selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
              addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
         }
 
@@ -127,8 +130,86 @@ async function loadAgentsList() {
     }
 }
 
+
+// --- NOVO: Lógica de Criação de Agente ---
+
+// Listener para mostrar/esconder o formulário
+document.getElementById('toggle-form-btn').addEventListener('click', () => {
+    const formContainer = document.getElementById('create-agent-form-container');
+    formContainer.style.display = formContainer.style.display === 'none' ? 'block' : 'none';
+});
+
+// Listener para submissão do formulário
+document.getElementById('new-agent-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await createNewAgent();
+});
+
+// Função para enviar os dados para a Netlify Function (createAgent)
+async function createNewAgent() {
+    const user = netlifyIdentity.currentUser();
+    const formMessage = document.getElementById('form-message');
+
+    if (!user) {
+        formMessage.textContent = 'Erro: Você precisa estar logado para criar novos agentes.';
+        formMessage.style.color = 'red';
+        return;
+    }
+    
+    // Coleta os dados do formulário
+    const agentData = {
+        AgentName: document.getElementById('agent-name').value,
+        agentFunction: document.getElementById('agent-function').value,
+        systemPrompt: document.getElementById('system-prompt').value,
+        shouldSearchPrompt: document.getElementById('search-prompt').value,
+        createdBy: user.email, // e-mail do usuário logado
+    };
+
+    const saveButton = document.getElementById('save-agent-btn');
+    saveButton.disabled = true;
+    formMessage.textContent = 'Salvando novo agente...';
+    formMessage.style.color = 'blue';
+
+    try {
+        const token = await user.jwt();
+        
+        const response = await fetch('/.netlify/functions/createAgent', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify(agentData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            formMessage.textContent = `✅ Agente '${data.AgentName}' criado com sucesso! (ID: ${data.AgentID})`;
+            formMessage.style.color = 'green';
+            document.getElementById('new-agent-form').reset(); 
+            
+            // Recarrega a lista e seleciona o novo agente
+            await loadAgentsList(); 
+            document.getElementById('agent-select').value = data.AgentID;
+
+        } else {
+            formMessage.textContent = `❌ Falha ao criar agente: ${data.error || 'Erro desconhecido'}`;
+            formMessage.style.color = 'red';
+        }
+
+    } catch (error) {
+        console.error('Erro na criação do agente:', error);
+        formMessage.textContent = `❌ Erro de conexão. Verifique o console.`;
+        formMessage.style.color = 'red';
+    } finally {
+        saveButton.disabled = false;
+    }
+}
+
 // Inicializar agent
 const agent = new FarmaceuticoAgent();
+
 
 // Inicializa a carga da lista de agentes após a inicialização do Identity
 netlifyIdentity.on('init', () => {
@@ -143,7 +224,7 @@ netlifyIdentity.on('logout', () => {
 });
 
 
-// Event listeners
+// Event listeners do chat
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 document.getElementById('user-input').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
