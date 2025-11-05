@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plataforma de Agentes IA</title>
-    <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script> 
-    
+    <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -14,12 +15,14 @@
             padding: 20px;
             background-color: #f5f5f5;
         }
+
         .chat-container {
             background: white;
             border-radius: 10px;
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
+
         #chat-messages {
             height: 400px;
             overflow-y: auto;
@@ -28,32 +31,38 @@
             margin-bottom: 10px;
             border-radius: 5px;
         }
+
         .message {
             margin: 10px 0;
             padding: 10px;
             border-radius: 10px;
             max-width: 80%;
         }
+
         .user-message {
             background: #007bff;
             color: white;
             margin-left: auto;
             text-align: right;
         }
+
         .assistant-message {
             background: #e9ecef;
             color: #333;
         }
+
         .input-container {
             display: flex;
             gap: 10px;
         }
+
         #user-input {
             flex: 1;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
         }
+
         #send-btn {
             padding: 10px 20px;
             background: #007bff;
@@ -62,9 +71,11 @@
             border-radius: 5px;
             cursor: pointer;
         }
+
         #send-btn:hover {
             background: #0056b3;
         }
+
         /* Estilo para o seletor de agente */
         #agent-select {
             padding: 8px;
@@ -74,18 +85,28 @@
         }
     </style>
 </head>
+
 <body>
     <div class="chat-container">
         <h1>💊 Plataforma de Agentes IA</h1>
-        <div data-netlify-identity-menu></div> 
-        
+        <div data-netlify-identity-menu></div>
+
         <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
             <label for="agent-select">Agente Ativo:</label>
             <select id="agent-select" style="width: 60%;"></select>
-            <button id="toggle-form-btn" style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">+ Novo Agente</button>
+
+            <button id="delete-agent-btn"
+                style="padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;"
+                title="Deletar o agente selecionado" disabled>Deletar
+            </button>
+
+            <button id="toggle-form-btn"
+                style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">+
+                Novo Agente</button>
         </div>
 
-        <div id="create-agent-form-container" style="display: none; border: 1px solid #ddd; padding: 15px; border-radius: 5px; margin-bottom: 20px; background-color: #f8f9fa;">
+        <div id="create-agent-form-container"
+            style="display: none; border: 1px solid #ddd; padding: 15px; border-radius: 5px; margin-bottom: 20px; background-color: #f8f9fa;">
             <h3>Criar Novo Agente</h3>
             <form id="new-agent-form">
                 <div style="margin-bottom: 10px;">
@@ -94,18 +115,21 @@
                 </div>
                 <div style="margin-bottom: 10px;">
                     <label for="agent-function">Função/Descrição:</label>
-                    <textarea id="agent-function" required style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
+                    <textarea id="agent-function" required
+                        style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
                 </div>
                 <div style="margin-bottom: 10px;">
                     <label for="system-prompt">Prompt do Sistema (Persona):</label>
-                    <textarea id="system-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex. Você é um Assistente farmacêutico 
+                    <textarea id="system-prompt" required
+                        style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex. Você é um Assistente farmacêutico 
                     especializado em medicamentos e dosagens. 
                     Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
                     Seja claro, conciso e forneça informações precisas.</textarea>
                 </div>
                 <div style="margin-bottom: 15px;">
                     <label for="search-prompt">Prompt de Decisão de Busca:</label>
-                    <textarea id="search-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex.: Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
+                    <textarea id="search-prompt" required
+                        style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex.: Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
 
                     Pergunta: "{question}"
 
@@ -115,13 +139,15 @@
 
                     Resposta:</textarea>
                 </div>
-                <button type="submit" id="save-agent-btn" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Salvar Agente</button>
+                <button type="submit" id="save-agent-btn"
+                    style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Salvar
+                    Agente</button>
                 <div id="form-message" style="margin-top: 10px; font-weight: bold;"></div>
             </form>
         </div>
-        
+
         <div id="chat-messages">
-            </div>
+        </div>
         <div class="input-container">
             <input type="text" id="user-input" placeholder="Digite sua mensagem...">
             <button id="send-btn">Enviar</button>
@@ -130,4 +156,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
