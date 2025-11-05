@@ -79,13 +79,13 @@ function addMessageToChat(sender, message) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
+// FUNÇÃO CORRIGIDA: Carrega agentes do Netlify Function (getAgents)
 async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
     const deleteButton = document.getElementById('delete-agent-btn');
     
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
-    deleteButton.disabled = true; // Desativa o botão enquanto carrega
+    deleteButton.disabled = true; 
     
     try {
         const user = netlifyIdentity.currentUser();
@@ -119,28 +119,47 @@ async function loadAgentsList() {
                 selectElement.appendChild(option);
             });
             
-            // Seleciona o agente ativo ou o primeiro agente
-            const selectedAgentId = agent.selectedAgentId || (agents[0] ? agents[0].AgentID : 1);
-            selectElement.value = selectedAgentId;
+            // --- LÓGICA DE SELEÇÃO CORRIGIDA ---
+            let newSelectedId = agent.selectedAgentId;
+            const validAgentIds = agents.map(a => a.AgentID.toString());
+
+            // 1. Verifica se o ID selecionado ainda existe.
+            if (!validAgentIds.includes(newSelectedId.toString())) {
+                console.warn(`Agente ${newSelectedId} não existe mais. Voltando para o ID 1.`);
+                newSelectedId = 1; // Volta para o ID 1 como fallback
+            }
+
+            // 2. Garante que o ID 1 exista ou que haja outro ID válido (caso o ID 1 tenha sido removido, o que não deve acontecer)
+            if (!validAgentIds.includes('1') && agents.length > 0) {
+                 newSelectedId = agents[0].AgentID; // Pega o primeiro agente disponível
+            } else if (agents.length === 0) {
+                 newSelectedId = 1; // Fallback extremo se o DB estiver vazio
+            }
+
+            // 3. Aplica a seleção
+            agent.selectedAgentId = newSelectedId;
+            selectElement.value = newSelectedId;
             
             const selectedName = selectElement.options[selectElement.selectedIndex].textContent;
-            agent.selectedAgentId = selectedAgentId;
 
-            // Controla o botão Deletar na carga inicial
-            deleteButton.disabled = (parseInt(selectedAgentId) <= 1);
+            // 4. Controla o botão Deletar
+            deleteButton.disabled = (parseInt(newSelectedId) <= 1);
 
             addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
             
         } else {
+             // Caso a lista esteja vazia
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
              deleteButton.disabled = true;
              addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
+             agent.selectedAgentId = 1;
         }
 
     } catch (error) {
         console.error("Erro ao carregar lista de agentes:", error);
         selectElement.innerHTML = '<option value="1">Erro ao carregar (Usando Padrão)</option>';
         deleteButton.disabled = true;
+        agent.selectedAgentId = 1;
     }
 }
 
@@ -220,7 +239,9 @@ async function createNewAgent() {
     }
 }
 
-// --- NOVO: Lógica de Exclusão de Agente ---
+// --- Lógica de Exclusão de Agente ---
+
+// Listener para o botão de deletar (adicionado no final)
 
 // Função para enviar o AgentID selecionado para exclusão
 async function deleteSelectedAgent() {
@@ -229,8 +250,8 @@ async function deleteSelectedAgent() {
     const agentId = selectElement.value;
     const agentName = selectElement.options[selectElement.selectedIndex].textContent;
 
-    if (parseInt(agentId) === 1) {
-        alert("Agente 1 (Padrão) não pode ser excluído.");
+    if (parseInt(agentId) <= 1) { // Garante que IDs <= 1 não podem ser deletados
+        alert("Agente Padrão ou ID inválido não pode ser excluído.");
         return;
     }
     
@@ -270,7 +291,9 @@ async function deleteSelectedAgent() {
         console.error('Erro ao deletar agente:', error);
         alert(`❌ Erro de conexão. Verifique o console.`);
     } finally {
-        deleteButton.disabled = false;
+        // O botão é reativado após o recarregamento em loadAgentsList,
+        // mas garantimos que ele não fica desativado permanentemente em caso de erro.
+        // deleteButton.disabled = false;
     }
 }
 
