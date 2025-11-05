@@ -4,7 +4,7 @@ class FarmaceuticoAgent {
         this.apiUrl = '/.netlify/functions/agent';
         this.selectedAgentId = 1; // ID padrão
         
-        // Listener para a seleção de agente
+        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar)
         document.getElementById('agent-select').addEventListener('change', (e) => {
             this.selectedAgentId = e.target.value;
             this.chatHistory = []; // Limpa o histórico ao mudar o agente
@@ -13,6 +13,11 @@ class FarmaceuticoAgent {
             
             document.getElementById('chat-messages').innerHTML = 
                 `<div class="message assistant-message">Agente **${selectedName}** selecionado. Novo chat iniciado.</div>`;
+            
+            // Lógica para desabilitar o botão de deletar se for o Agente 1
+            const deleteButton = document.getElementById('delete-agent-btn');
+            // Desabilita se o ID for 1 ou se não houver um ID válido
+            deleteButton.disabled = (parseInt(this.selectedAgentId) <= 1 || isNaN(parseInt(this.selectedAgentId)));
         });
     }
 
@@ -74,10 +79,13 @@ function addMessageToChat(sender, message) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
+// FUNÇÃO CORRIGIDA: Carrega agentes do Netlify Function (getAgents)
 async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
+    const deleteButton = document.getElementById('delete-agent-btn');
+    
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
+    deleteButton.disabled = true; 
     
     try {
         const user = netlifyIdentity.currentUser();
@@ -111,27 +119,52 @@ async function loadAgentsList() {
                 selectElement.appendChild(option);
             });
             
-            // Seleciona o primeiro agente ou o agente ativo
-            const selectedAgentId = agent.selectedAgentId || (agents[0] ? agents[0].AgentID : 1);
-            selectElement.value = selectedAgentId;
+            // --- LÓGICA DE SELEÇÃO CORRIGIDA ---
+            let newSelectedId = agent.selectedAgentId;
+            const validAgentIds = agents.map(a => a.AgentID.toString());
+
+            // 1. Verifica se o ID selecionado ainda existe.
+            if (!validAgentIds.includes(newSelectedId.toString())) {
+                console.warn(`Agente ${newSelectedId} não existe mais. Voltando para o ID 1.`);
+                newSelectedId = 1; // Volta para o ID 1 como fallback
+            }
+
+            // 2. Garante que o ID 1 exista ou que haja outro ID válido (caso o ID 1 tenha sido removido, o que não deve acontecer)
+            if (!validAgentIds.includes('1') && agents.length > 0) {
+                 newSelectedId = agents[0].AgentID; // Pega o primeiro agente disponível
+            } else if (agents.length === 0) {
+                 newSelectedId = 1; // Fallback extremo se o DB estiver vazio
+            }
+
+            // 3. Aplica a seleção
+            agent.selectedAgentId = newSelectedId;
+            selectElement.value = newSelectedId;
             
             const selectedName = selectElement.options[selectElement.selectedIndex].textContent;
-            agent.selectedAgentId = selectedAgentId;
+
+            // 4. Controla o botão Deletar
+            deleteButton.disabled = (parseInt(newSelectedId) <= 1);
+
             addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
             
         } else {
+             // Caso a lista esteja vazia
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
+             deleteButton.disabled = true;
              addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
+             agent.selectedAgentId = 1;
         }
 
     } catch (error) {
         console.error("Erro ao carregar lista de agentes:", error);
         selectElement.innerHTML = '<option value="1">Erro ao carregar (Usando Padrão)</option>';
+        deleteButton.disabled = true;
+        agent.selectedAgentId = 1;
     }
 }
 
 
-// --- NOVO: Lógica de Criação de Agente ---
+// --- Lógica de Criação de Agente ---
 
 // Listener para mostrar/esconder o formulário
 document.getElementById('toggle-form-btn').addEventListener('click', () => {
@@ -156,13 +189,12 @@ async function createNewAgent() {
         return;
     }
     
-    // Coleta os dados do formulário
     const agentData = {
         AgentName: document.getElementById('agent-name').value,
         agentFunction: document.getElementById('agent-function').value,
         systemPrompt: document.getElementById('system-prompt').value,
         shouldSearchPrompt: document.getElementById('search-prompt').value,
-        createdBy: user.email, // e-mail do usuário logado
+        createdBy: user.email, 
     };
 
     const saveButton = document.getElementById('save-agent-btn');
@@ -207,9 +239,69 @@ async function createNewAgent() {
     }
 }
 
+// --- Lógica de Exclusão de Agente ---
+
+// Listener para o botão de deletar (adicionado no final)
+
+// Função para enviar o AgentID selecionado para exclusão
+async function deleteSelectedAgent() {
+    const user = netlifyIdentity.currentUser();
+    const selectElement = document.getElementById('agent-select');
+    const agentId = selectElement.value;
+    const agentName = selectElement.options[selectElement.selectedIndex].textContent;
+
+    if (parseInt(agentId) <= 1) { // Garante que IDs <= 1 não podem ser deletados
+        alert("Agente Padrão ou ID inválido não pode ser excluído.");
+        return;
+    }
+    
+    if (!confirm(`Tem certeza que deseja DELETAR o agente "${agentName}" (ID: ${agentId})? Esta ação é irreversível.`)) {
+        return;
+    }
+
+    if (!user) {
+        alert('Você precisa estar logado para deletar agentes.');
+        return;
+    }
+    
+    const deleteButton = document.getElementById('delete-agent-btn');
+    deleteButton.disabled = true;
+
+    try {
+        const token = await user.jwt();
+        
+        // Usa o método DELETE e envia o ID como parâmetro de URL
+        const response = await fetch(`/.netlify/functions/deleteAgent?agentId=${agentId}`, {
+            method: 'DELETE',
+            headers: { 
+                'Authorization': `Bearer ${token}` 
+            }
+        });
+
+        if (response.ok) {
+            alert(`✅ Agente '${agentName}' deletado com sucesso!`);
+            // Recarrega a lista para remover o agente deletado
+            loadAgentsList(); 
+        } else {
+            const data = await response.json();
+            alert(`❌ Falha ao deletar: ${data.error || 'Erro desconhecido'}`);
+        }
+
+    } catch (error) {
+        console.error('Erro ao deletar agente:', error);
+        alert(`❌ Erro de conexão. Verifique o console.`);
+    } finally {
+        // O botão é reativado após o recarregamento em loadAgentsList,
+        // mas garantimos que ele não fica desativado permanentemente em caso de erro.
+        // deleteButton.disabled = false;
+    }
+}
+
+
 // Inicializar agent
 const agent = new FarmaceuticoAgent();
 
+// --- Event Listeners de Inicialização e Gestão ---
 
 // Inicializa a carga da lista de agentes após a inicialização do Identity
 netlifyIdentity.on('init', () => {
@@ -219,18 +311,22 @@ netlifyIdentity.on('init', () => {
 netlifyIdentity.on('login', loadAgentsList);
 netlifyIdentity.on('logout', () => {
     document.getElementById('agent-select').innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
+    document.getElementById('delete-agent-btn').disabled = true; // Desativa o botão ao fazer logout
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
 });
 
 
-// Event listeners do chat
+// Event listeners do chat e do botão de deletar
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 document.getElementById('user-input').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
         sendMessage();
     }
 });
+// NOVO: Listener para o botão de deletar
+document.getElementById('delete-agent-btn').addEventListener('click', deleteSelectedAgent);
+
 
 async function sendMessage() {
     const input = document.getElementById('user-input');
