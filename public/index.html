@@ -98,11 +98,22 @@
                 </div>
                 <div style="margin-bottom: 10px;">
                     <label for="system-prompt">Prompt do Sistema (Persona):</label>
-                    <textarea id="system-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;"></textarea>
+                    <textarea id="system-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex. Você é um Assistente farmacêutico 
+                    especializado em medicamentos e dosagens. 
+                    Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
+                    Seja claro, conciso e forneça informações precisas.</textarea>
                 </div>
                 <div style="margin-bottom: 15px;">
                     <label for="search-prompt">Prompt de Decisão de Busca:</label>
-                    <textarea id="search-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;"></textarea>
+                    <textarea id="search-prompt" required style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex.: Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
+
+                    Pergunta: "{question}"
+
+                    Responda APENAS com "SIM" ou "NÃO":
+                    - "SIM": para informações recentes, dosagens específicas, atualizações, interações medicamentosas
+                    - "NÃO": para conceitos básicos, definições, perguntas gerais
+
+                    Resposta:</textarea>
                 </div>
                 <button type="submit" id="save-agent-btn" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Salvar Agente</button>
                 <div id="form-message" style="margin-top: 10px; font-weight: bold;"></div>
