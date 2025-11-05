@@ -1,4 +1,4 @@
-class FarmaceuticoAgent {
+class AgentManager { // <<< RENOMEADO
     constructor() {
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
@@ -79,7 +79,7 @@ function addMessageToChat(sender, message) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// FUNÇÃO CORRIGIDA: Carrega agentes do Netlify Function (getAgents)
+// FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
 async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
     const deleteButton = document.getElementById('delete-agent-btn');
@@ -241,8 +241,6 @@ async function createNewAgent() {
 
 // --- Lógica de Exclusão de Agente ---
 
-// Listener para o botão de deletar (adicionado no final)
-
 // Função para enviar o AgentID selecionado para exclusão
 async function deleteSelectedAgent() {
     const user = netlifyIdentity.currentUser();
@@ -291,27 +289,31 @@ async function deleteSelectedAgent() {
         console.error('Erro ao deletar agente:', error);
         alert(`❌ Erro de conexão. Verifique o console.`);
     } finally {
-        // O botão é reativado após o recarregamento em loadAgentsList,
-        // mas garantimos que ele não fica desativado permanentemente em caso de erro.
-        // deleteButton.disabled = false;
+        deleteButton.disabled = false;
     }
 }
 
 
 // Inicializar agent
-const agent = new FarmaceuticoAgent();
+const agent = new AgentManager(); // <<< RENOMEADO
 
-// --- Event Listeners de Inicialização e Gestão ---
+// --- Event Listeners de Inicialização e Gestão (CORRIGIDOS) ---
 
-// Inicializa a carga da lista de agentes após a inicialização do Identity
-netlifyIdentity.on('init', () => {
-    loadAgentsList();
+// 1. Ouve o evento 'init' (carregamento do widget)
+netlifyIdentity.on('init', (user) => {
+    // Se o usuário JÁ ESTIVER logado (sessão salva), carrega a lista
+    if (user) {
+        loadAgentsList();
+    }
 });
-// Também recarrega a lista após o login/logout
+
+// 2. Ouve o evento 'login' (usuário acaba de fazer login)
 netlifyIdentity.on('login', loadAgentsList);
+
+// 3. Ouve o evento 'logout'
 netlifyIdentity.on('logout', () => {
     document.getElementById('agent-select').innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
-    document.getElementById('delete-agent-btn').disabled = true; // Desativa o botão ao fazer logout
+    document.getElementById('delete-agent-btn').disabled = true; 
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
 });
@@ -324,7 +326,7 @@ document.getElementById('user-input').addEventListener('keypress', function(e) {
         sendMessage();
     }
 });
-// NOVO: Listener para o botão de deletar
+// Listener para o botão de deletar
 document.getElementById('delete-agent-btn').addEventListener('click', deleteSelectedAgent);
 
 
