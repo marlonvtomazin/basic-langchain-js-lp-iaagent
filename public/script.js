@@ -21,6 +21,7 @@ class AgentManager { // <<< RENOMEADO
 
             // Atualiza a informação do criador
             this.updateCreatorInfo(); 
+            this.updateAgentInfo()
         });
     }
 
@@ -36,7 +37,7 @@ class AgentManager { // <<< RENOMEADO
             creatorSpan.textContent = 'N/D';
         }
     }
-    
+
     // NOVO MÉTODO: Atualiza o texto da função do agente
     updateAgentInfo() {
         const agentFunctionSpan = document.getElementById('agent-function');
