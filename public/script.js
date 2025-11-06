@@ -36,6 +36,18 @@ class AgentManager { // <<< RENOMEADO
             creatorSpan.textContent = 'N/D';
         }
     }
+    
+    // NOVO MÉTODO: Atualiza o texto da função do agente
+    updateAgentInfo() {
+        const agentFunctionSpan = document.getElementById('agent-function');
+        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
+        
+        if (selectedAgent && selectedAgent.agentFunction) {
+            agentFunctionSpan.textContent = selectedAgent.agentFunction;
+        } else {
+            agentFunctionSpan.textContent = 'N/D';
+        }
+    }
 
     async sendMessage(message) {
         const user = netlifyIdentity.currentUser(); 
@@ -343,6 +355,7 @@ netlifyIdentity.on('logout', () => {
     document.getElementById('agent-select').innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
     document.getElementById('delete-agent-btn').disabled = true; 
     document.getElementById('creator-email').textContent = 'N/D'; // Limpa o criador
+    document.getElementById('agent-function').textContent = 'N/D'; // Limpa a função
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
 });

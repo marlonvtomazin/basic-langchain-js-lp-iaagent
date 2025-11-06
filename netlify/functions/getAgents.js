@@ -44,7 +44,7 @@ exports.handler = async (event, context) => {
 
         // --- LINHA CORRIGIDA AQUI: INCLUINDO 'createdBy' ---
         const agents = await collection.find({})
-            .project({ AgentID: 1, AgentName: 1, createdBy: 1, _id: 0 }) 
+            .project({ AgentID: 1, AgentName: 1, createdBy: 1, agentFunction: 1, _id: 0 }) 
             .toArray();
 
         return {
