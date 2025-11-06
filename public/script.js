@@ -3,8 +3,9 @@ class AgentManager { // <<< RENOMEADO
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
         this.selectedAgentId = 1; // ID padrão
+        this.agentsList = []; // <<< NOVO: Para armazenar a lista completa (inclui createdBy)
         
-        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar)
+        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar e o Criador)
         document.getElementById('agent-select').addEventListener('change', (e) => {
             this.selectedAgentId = e.target.value;
             this.chatHistory = []; // Limpa o histórico ao mudar o agente
@@ -16,9 +17,24 @@ class AgentManager { // <<< RENOMEADO
             
             // Lógica para desabilitar o botão de deletar se for o Agente 1
             const deleteButton = document.getElementById('delete-agent-btn');
-            // Desabilita se o ID for 1 ou se não houver um ID válido
             deleteButton.disabled = (parseInt(this.selectedAgentId) <= 1 || isNaN(parseInt(this.selectedAgentId)));
+
+            // Atualiza a informação do criador
+            this.updateCreatorInfo(); 
         });
+    }
+
+    // NOVO MÉTODO: Atualiza o texto do criador
+    updateCreatorInfo() {
+        const creatorSpan = document.getElementById('creator-email');
+        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
+        
+        if (selectedAgent && selectedAgent.createdBy) {
+            // O campo createdBy é geralmente o e-mail, pode ser truncado para melhor visualização se desejar.
+            creatorSpan.textContent = selectedAgent.createdBy;
+        } else {
+            creatorSpan.textContent = 'N/D';
+        }
     }
 
     async sendMessage(message) {
@@ -91,6 +107,9 @@ async function loadAgentsList() {
         const user = netlifyIdentity.currentUser();
         if (!user) {
              selectElement.innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
+             // Garante que o criador seja limpo ao deslogar
+             agent.agentsList = [];
+             agent.updateCreatorInfo(); 
              return;
         }
 
@@ -104,10 +123,13 @@ async function loadAgentsList() {
 
         if (response.status === 401) {
              selectElement.innerHTML = '<option value="" disabled selected>Sessão expirada.</option>';
+             agent.agentsList = []; 
+             agent.updateCreatorInfo(); 
              return;
         }
 
         const agents = await response.json();
+        agent.agentsList = agents; // <<< SALVA A LISTA COMPLETA NA INSTÂNCIA GLOBAL
         
         selectElement.innerHTML = ''; 
         
@@ -129,11 +151,11 @@ async function loadAgentsList() {
                 newSelectedId = 1; // Volta para o ID 1 como fallback
             }
 
-            // 2. Garante que o ID 1 exista ou que haja outro ID válido (caso o ID 1 tenha sido removido, o que não deve acontecer)
+            // 2. Garante que o ID 1 exista ou que haja outro ID válido
             if (!validAgentIds.includes('1') && agents.length > 0) {
-                 newSelectedId = agents[0].AgentID; // Pega o primeiro agente disponível
+                 newSelectedId = agents[0].AgentID; 
             } else if (agents.length === 0) {
-                 newSelectedId = 1; // Fallback extremo se o DB estiver vazio
+                 newSelectedId = 1; 
             }
 
             // 3. Aplica a seleção
@@ -145,12 +167,17 @@ async function loadAgentsList() {
             // 4. Controla o botão Deletar
             deleteButton.disabled = (parseInt(newSelectedId) <= 1);
 
+            // 5. Atualiza a informação do Criador
+            agent.updateCreatorInfo(); 
+
             addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
             
         } else {
              // Caso a lista esteja vazia
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
              deleteButton.disabled = true;
+             agent.agentsList = [];
+             agent.updateCreatorInfo(); 
              addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
              agent.selectedAgentId = 1;
         }
@@ -159,6 +186,8 @@ async function loadAgentsList() {
         console.error("Erro ao carregar lista de agentes:", error);
         selectElement.innerHTML = '<option value="1">Erro ao carregar (Usando Padrão)</option>';
         deleteButton.disabled = true;
+        agent.agentsList = [];
+        agent.updateCreatorInfo(); 
         agent.selectedAgentId = 1;
     }
 }
@@ -299,9 +328,8 @@ const agent = new AgentManager(); // <<< RENOMEADO
 
 // --- Event Listeners de Inicialização e Gestão (CORRIGIDOS) ---
 
-// 1. Ouve o evento 'init' (carregamento do widget)
+// 1. Ouve o evento 'init' (carregamento do widget). Se o usuário está logado, carrega a lista.
 netlifyIdentity.on('init', (user) => {
-    // Se o usuário JÁ ESTIVER logado (sessão salva), carrega a lista
     if (user) {
         loadAgentsList();
     }
@@ -314,6 +342,7 @@ netlifyIdentity.on('login', loadAgentsList);
 netlifyIdentity.on('logout', () => {
     document.getElementById('agent-select').innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
     document.getElementById('delete-agent-btn').disabled = true; 
+    document.getElementById('creator-email').textContent = 'N/D'; // Limpa o criador
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
 });
