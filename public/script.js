@@ -3,7 +3,7 @@ class AgentManager { // <<< RENOMEADO
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
         this.selectedAgentId = 1; // ID padrão
-        this.agentsList = []; // <<< NOVO: Para armazenar a lista completa (inclui createdBy)
+        this.agentsList = []; // Para armazenar a lista completa (inclui createdBy)
         
         // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar e o Criador)
         document.getElementById('agent-select').addEventListener('change', (e) => {
@@ -21,7 +21,7 @@ class AgentManager { // <<< RENOMEADO
 
             // Atualiza a informação do criador
             this.updateCreatorInfo(); 
-            this.updateAgentInfo()
+            this.updateAgentInfo();
         });
     }
 
@@ -31,13 +31,12 @@ class AgentManager { // <<< RENOMEADO
         const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
         
         if (selectedAgent && selectedAgent.createdBy) {
-            // O campo createdBy é geralmente o e-mail, pode ser truncado para melhor visualização se desejar.
             creatorSpan.textContent = selectedAgent.createdBy;
         } else {
             creatorSpan.textContent = 'N/D';
         }
     }
-
+    
     // NOVO MÉTODO: Atualiza o texto da função do agente
     updateAgentInfo() {
         const agentFunctionSpan = document.getElementById('agent-function');
@@ -120,9 +119,10 @@ async function loadAgentsList() {
         const user = netlifyIdentity.currentUser();
         if (!user) {
              selectElement.innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
-             // Garante que o criador seja limpo ao deslogar
+             // Garante que o criador/função seja limpo ao deslogar (manter esta chamada)
              agent.agentsList = [];
              agent.updateCreatorInfo(); 
+             agent.updateAgentInfo();
              return;
         }
 
@@ -138,11 +138,12 @@ async function loadAgentsList() {
              selectElement.innerHTML = '<option value="" disabled selected>Sessão expirada.</option>';
              agent.agentsList = []; 
              agent.updateCreatorInfo(); 
+             agent.updateAgentInfo();
              return;
         }
 
         const agents = await response.json();
-        agent.agentsList = agents; // <<< SALVA A LISTA COMPLETA NA INSTÂNCIA GLOBAL
+        agent.agentsList = agents; // SALVA A LISTA COMPLETA NA INSTÂNCIA GLOBAL
         
         selectElement.innerHTML = ''; 
         
@@ -180,8 +181,9 @@ async function loadAgentsList() {
             // 4. Controla o botão Deletar
             deleteButton.disabled = (parseInt(newSelectedId) <= 1);
 
-            // 5. Atualiza a informação do Criador
+            // 5. Atualiza a informação do Criador E AGORA TAMBÉM A FUNÇÃO
             agent.updateCreatorInfo(); 
+            agent.updateAgentInfo(); 
 
             addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
             
@@ -191,6 +193,7 @@ async function loadAgentsList() {
              deleteButton.disabled = true;
              agent.agentsList = [];
              agent.updateCreatorInfo(); 
+             agent.updateAgentInfo(); 
              addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
              agent.selectedAgentId = 1;
         }
@@ -201,12 +204,10 @@ async function loadAgentsList() {
         deleteButton.disabled = true;
         agent.agentsList = [];
         agent.updateCreatorInfo(); 
+        agent.updateAgentInfo(); // ✅ CORREÇÃO 2e: Limpa a info da função
         agent.selectedAgentId = 1;
     }
 }
-
-
-// --- Lógica de Criação de Agente ---
 
 // Listener para mostrar/esconder o formulário
 document.getElementById('toggle-form-btn').addEventListener('click', () => {
@@ -281,7 +282,6 @@ async function createNewAgent() {
     }
 }
 
-// --- Lógica de Exclusão de Agente ---
 
 // Função para enviar o AgentID selecionado para exclusão
 async function deleteSelectedAgent() {
