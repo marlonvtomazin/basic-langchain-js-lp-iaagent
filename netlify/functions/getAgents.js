@@ -42,9 +42,9 @@ exports.handler = async (event, context) => {
         const db = await connectToDatabase(MONGODB_URI);
         const collection = db.collection(COLLECTION_NAME);
 
-        // Busca todos os agentes, retornando apenas os campos necessários para o seletor
+        // --- LINHA CORRIGIDA AQUI: INCLUINDO 'createdBy' ---
         const agents = await collection.find({})
-            .project({ AgentID: 1, AgentName: 1, _id: 0 }) // Seleciona apenas ID e Nome
+            .project({ AgentID: 1, AgentName: 1, createdBy: 1, _id: 0 }) 
             .toArray();
 
         return {
