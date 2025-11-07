@@ -1,21 +1,18 @@
 const { MongoClient } = require('mongodb');
 
-// Configurações do Banco de Dados (as mesmas usadas em agent.js)
+// Configurações do Banco de Dados
 let cachedDb = null;
 const MONGODB_URI = process.env.MONGO_URI;
 const DB_NAME = 'ai_agents_db'; 
 const COLLECTION_NAME = 'agents'; 
 
-// Função de conexão (reutilizada de agent.js)
+// Função de conexão
 async function connectToDatabase(uri) {
     if (cachedDb) {
         return cachedDb;
     }
 
-    const client = await MongoClient.connect(uri, { 
-        useNewUrlParser: true, 
-        useUnifiedTopology: true 
-    });
+    const client = await MongoClient.connect(uri);
     
     const db = client.db(DB_NAME);
     cachedDb = db;
@@ -42,9 +39,17 @@ exports.handler = async (event, context) => {
         const db = await connectToDatabase(MONGODB_URI);
         const collection = db.collection(COLLECTION_NAME);
 
-        // --- LINHA CORRIGIDA AQUI: INCLUINDO 'createdBy' ---
+        // ✅ LINHA CORRIGIDA: Incluindo 'systemPrompt' e 'shouldSearchPrompt' na projeção
         const agents = await collection.find({})
-            .project({ AgentID: 1, AgentName: 1, createdBy: 1, agentFunction: 1, _id: 0 }) 
+            .project({ 
+                AgentID: 1, 
+                AgentName: 1, 
+                createdBy: 1, 
+                agentFunction: 1, 
+                systemPrompt: 1, // <<< NOVO CAMPO
+                shouldSearchPrompt: 1, // <<< NOVO CAMPO
+                _id: 0 
+            }) 
             .toArray();
 
         return {
@@ -54,11 +59,11 @@ exports.handler = async (event, context) => {
         };
 
     } catch (error) {
-        console.error('❌ Erro ao buscar lista de agentes do MongoDB:', error);
+        console.error('❌ Erro na função getAgents:', error);
         return {
             statusCode: 500,
             headers,
-            body: JSON.stringify({ error: 'Falha ao carregar agentes.' }),
+            body: JSON.stringify({ error: `Falha interna: ${error.message}` }),
         };
     }
 };
