@@ -1,13 +1,13 @@
-class AgentManager { // <<< RENOMEADO
+class AgentManager { 
     constructor() {
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
         this.selectedAgentId = 1; // ID padrão
         this.agentsList = []; // Para armazenar a lista completa (inclui createdBy)
         
-        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar e o Criador)
+        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar/EDITAR e o Criador)
         document.getElementById('agent-select').addEventListener('change', (e) => {
-            this.selectedAgentId = e.target.value;
+            this.selectedAgentId = e.target.value; 
             this.chatHistory = []; // Limpa o histórico ao mudar o agente
             
             const selectedName = e.target.options[e.target.selectedIndex].textContent;
@@ -15,14 +15,23 @@ class AgentManager { // <<< RENOMEADO
             document.getElementById('chat-messages').innerHTML = 
                 `<div class="message assistant-message">Agente **${selectedName}** selecionado. Novo chat iniciado.</div>`;
             
-            // Lógica para desabilitar o botão de deletar se for o Agente 1
-            const deleteButton = document.getElementById('delete-agent-btn');
-            deleteButton.disabled = (parseInt(this.selectedAgentId) <= 1 || isNaN(parseInt(this.selectedAgentId)));
-
-            // Atualiza a informação do criador
+            this.controlAgentButtons(parseInt(this.selectedAgentId));
             this.updateCreatorInfo(); 
             this.updateAgentInfo();
+            this.hideForm(); // Esconde o formulário ao trocar de agente
         });
+    }
+
+    // ✅ NOVO MÉTODO: Controla os botões Deletar e Editar
+    controlAgentButtons(selectedId) {
+        const deleteButton = document.getElementById('delete-agent-btn');
+        const editButton = document.getElementById('edit-agent-btn');
+        
+        // Garante que IDs <= 1 não possam ser deletados ou editados
+        const isDisabled = (selectedId <= 1 || isNaN(selectedId));
+        
+        deleteButton.disabled = isDisabled;
+        editButton.disabled = isDisabled;
     }
 
     // NOVO MÉTODO: Atualiza o texto do criador
@@ -47,6 +56,42 @@ class AgentManager { // <<< RENOMEADO
         } else {
             agentFunctionSpan.textContent = 'N/D';
         }
+    }
+    
+    // ✅ NOVO MÉTODO: Preenche o formulário para edição
+    fillAgentFormForEdit() {
+        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
+        const formTitle = document.getElementById('form-title');
+        const formContainer = document.getElementById('create-agent-form-container');
+        
+        if (selectedAgent && selectedAgent.AgentID > 1) {
+            // Preenche os campos do formulário
+            document.getElementById('agent-id-field').value = selectedAgent.AgentID;
+            document.getElementById('agent-name').value = selectedAgent.AgentName;
+            document.getElementById('agent-function-input').value = selectedAgent.agentFunction || ''; 
+            document.getElementById('system-prompt').value = selectedAgent.systemPrompt || '';
+            document.getElementById('search-prompt').value = selectedAgent.shouldSearchPrompt || '';
+            
+            // Configura o título e exibe
+            formTitle.textContent = `Editar Agente: ${selectedAgent.AgentName}`;
+            document.getElementById('save-agent-btn').textContent = 'Salvar Alterações';
+            formContainer.style.display = 'block';
+            document.getElementById('form-message').textContent = 'Modifique os campos e clique em Salvar Alterações.';
+            document.getElementById('form-message').style.color = 'blue';
+        } else {
+            alert("Nenhum agente válido (ID > 1) selecionado para edição.");
+            this.hideForm();
+        }
+    }
+
+    // ✅ NOVO MÉTODO: Função auxiliar para esconder e limpar o formulário
+    hideForm() {
+        document.getElementById('create-agent-form-container').style.display = 'none';
+        document.getElementById('agent-form').reset();
+        document.getElementById('agent-id-field').value = ''; // Campo ID é limpo
+        document.getElementById('form-title').textContent = 'Criar';
+        document.getElementById('save-agent-btn').textContent = 'Salvar Agente';
+        document.getElementById('form-message').textContent = '';
     }
 
     async sendMessage(message) {
@@ -95,6 +140,9 @@ class AgentManager { // <<< RENOMEADO
     }
 }
 
+// Inicializar agent 
+const agent = new AgentManager(); 
+
 // Função para adicionar mensagens ao chat
 function addMessageToChat(sender, message) {
     const chatMessages = document.getElementById('chat-messages');
@@ -110,16 +158,14 @@ function addMessageToChat(sender, message) {
 // FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
 async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
-    const deleteButton = document.getElementById('delete-agent-btn');
     
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
-    deleteButton.disabled = true; 
+    agent.controlAgentButtons(1); // Usa o método da classe
     
     try {
         const user = netlifyIdentity.currentUser();
         if (!user) {
              selectElement.innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
-             // Garante que o criador/função seja limpo ao deslogar (manter esta chamada)
              agent.agentsList = [];
              agent.updateCreatorInfo(); 
              agent.updateAgentInfo();
@@ -143,7 +189,7 @@ async function loadAgentsList() {
         }
 
         const agents = await response.json();
-        agent.agentsList = agents; // SALVA A LISTA COMPLETA NA INSTÂNCIA GLOBAL
+        agent.agentsList = agents; 
         
         selectElement.innerHTML = ''; 
         
@@ -155,42 +201,33 @@ async function loadAgentsList() {
                 selectElement.appendChild(option);
             });
             
-            // --- LÓGICA DE SELEÇÃO CORRIGIDA ---
             let newSelectedId = agent.selectedAgentId;
             const validAgentIds = agents.map(a => a.AgentID.toString());
 
-            // 1. Verifica se o ID selecionado ainda existe.
             if (!validAgentIds.includes(newSelectedId.toString())) {
-                console.warn(`Agente ${newSelectedId} não existe mais. Voltando para o ID 1.`);
-                newSelectedId = 1; // Volta para o ID 1 como fallback
+                newSelectedId = validAgentIds.includes('1') ? 1 : agents[0].AgentID;
             }
 
-            // 2. Garante que o ID 1 exista ou que haja outro ID válido
             if (!validAgentIds.includes('1') && agents.length > 0) {
                  newSelectedId = agents[0].AgentID; 
             } else if (agents.length === 0) {
                  newSelectedId = 1; 
             }
 
-            // 3. Aplica a seleção
             agent.selectedAgentId = newSelectedId;
             selectElement.value = newSelectedId;
             
             const selectedName = selectElement.options[selectElement.selectedIndex].textContent;
 
-            // 4. Controla o botão Deletar
-            deleteButton.disabled = (parseInt(newSelectedId) <= 1);
-
-            // 5. Atualiza a informação do Criador E AGORA TAMBÉM A FUNÇÃO
+            agent.controlAgentButtons(parseInt(newSelectedId));
             agent.updateCreatorInfo(); 
             agent.updateAgentInfo(); 
 
             addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
             
         } else {
-             // Caso a lista esteja vazia
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
-             deleteButton.disabled = true;
+             agent.controlAgentButtons(1);
              agent.agentsList = [];
              agent.updateCreatorInfo(); 
              agent.updateAgentInfo(); 
@@ -201,24 +238,53 @@ async function loadAgentsList() {
     } catch (error) {
         console.error("Erro ao carregar lista de agentes:", error);
         selectElement.innerHTML = '<option value="1">Erro ao carregar (Usando Padrão)</option>';
-        deleteButton.disabled = true;
+        agent.controlAgentButtons(1);
         agent.agentsList = [];
         agent.updateCreatorInfo(); 
-        agent.updateAgentInfo(); // ✅ CORREÇÃO 2e: Limpa a info da função
+        agent.updateAgentInfo(); 
         agent.selectedAgentId = 1;
     }
 }
 
-// Listener para mostrar/esconder o formulário
+// Listener para mostrar/esconder o formulário (e garantir o modo 'Criar')
 document.getElementById('toggle-form-btn').addEventListener('click', () => {
     const formContainer = document.getElementById('create-agent-form-container');
-    formContainer.style.display = formContainer.style.display === 'none' ? 'block' : 'none';
+    const formTitle = document.getElementById('form-title');
+    
+    // Se o formulário estiver visível e no modo 'Criar', esconde.
+    if (formContainer.style.display === 'block' && formTitle.textContent.includes('Criar')) {
+        agent.hideForm();
+    } else {
+        // Modo Criação
+        agent.hideForm(); // Reseta para o modo "Criar"
+        formContainer.style.display = 'block';
+        document.getElementById('form-message').textContent = 'Preencha os campos para criar um novo agente.';
+    }
 });
 
-// Listener para submissão do formulário
-document.getElementById('new-agent-form').addEventListener('submit', async (e) => {
+// ✅ NOVO Listener para EDITAR Agente
+document.getElementById('edit-agent-btn').addEventListener('click', () => {
+    if (parseInt(agent.selectedAgentId) > 1) {
+        agent.fillAgentFormForEdit();
+    } else {
+        alert("Selecione um agente válido para edição.");
+    }
+});
+
+// ✅ MODIFICADO: Listener para submissão do formulário (Criação ou Edição)
+document.getElementById('agent-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    await createNewAgent();
+    
+    // Verifica o campo oculto do ID
+    const agentId = document.getElementById('agent-id-field').value;
+    
+    if (agentId) {
+        // Modo Edição (Update)
+        await updateAgent();
+    } else {
+        // Modo Criação (Create)
+        await createNewAgent(); 
+    }
 });
 
 // Função para enviar os dados para a Netlify Function (createAgent)
@@ -234,7 +300,7 @@ async function createNewAgent() {
     
     const agentData = {
         AgentName: document.getElementById('agent-name').value,
-        agentFunction: document.getElementById('agent-function').value,
+        agentFunction: document.getElementById('agent-function-input').value, // ✅ CORRIGIDO ID AQUI
         systemPrompt: document.getElementById('system-prompt').value,
         shouldSearchPrompt: document.getElementById('search-prompt').value,
         createdBy: user.email, 
@@ -262,9 +328,8 @@ async function createNewAgent() {
         if (response.ok) {
             formMessage.textContent = `✅ Agente '${data.AgentName}' criado com sucesso! (ID: ${data.AgentID})`;
             formMessage.style.color = 'green';
-            document.getElementById('new-agent-form').reset(); 
+            agent.hideForm();
             
-            // Recarrega a lista e seleciona o novo agente
             await loadAgentsList(); 
             document.getElementById('agent-select').value = data.AgentID;
 
@@ -282,6 +347,73 @@ async function createNewAgent() {
     }
 }
 
+// ✅ NOVA FUNÇÃO: Lógica de atualização (edição)
+async function updateAgent() {
+    const user = netlifyIdentity.currentUser();
+    const formMessage = document.getElementById('form-message');
+
+    if (!user) {
+        formMessage.textContent = 'Erro: Você precisa estar logado para editar agentes.';
+        formMessage.style.color = 'red';
+        return;
+    }
+    
+    const agentId = document.getElementById('agent-id-field').value;
+
+    if (parseInt(agentId) <= 1 || isNaN(parseInt(agentId))) {
+        formMessage.textContent = 'Erro: Agente Padrão (ID 1) não pode ser editado.';
+        formMessage.style.color = 'red';
+        return;
+    }
+
+    const agentData = {
+        AgentID: parseInt(agentId),
+        AgentName: document.getElementById('agent-name').value,
+        agentFunction: document.getElementById('agent-function-input').value,
+        systemPrompt: document.getElementById('system-prompt').value,
+        shouldSearchPrompt: document.getElementById('search-prompt').value,
+    };
+
+    const saveButton = document.getElementById('save-agent-btn');
+    saveButton.disabled = true;
+    formMessage.textContent = `Atualizando agente ID ${agentId}...`;
+    formMessage.style.color = 'blue';
+
+    try {
+        const token = await user.jwt();
+        
+        // Requisição PUT para a nova Netlify Function
+        const response = await fetch('/.netlify/functions/updateAgent', {
+            method: 'PUT',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify(agentData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            formMessage.textContent = `✅ Agente '${agentData.AgentName}' (ID: ${agentId}) atualizado com sucesso!`;
+            formMessage.style.color = 'green';
+            agent.hideForm();
+            
+            await loadAgentsList(); 
+
+        } else {
+            formMessage.textContent = `❌ Falha ao atualizar agente: ${data.error || 'Erro desconhecido'}`;
+            formMessage.style.color = 'red';
+        }
+
+    } catch (error) {
+        console.error('Erro na atualização do agente:', error);
+        formMessage.textContent = `❌ Erro de conexão. Verifique o console.`;
+        formMessage.style.color = 'red';
+    } finally {
+        saveButton.disabled = false;
+    }
+}
 
 // Função para enviar o AgentID selecionado para exclusão
 async function deleteSelectedAgent() {
@@ -290,7 +422,7 @@ async function deleteSelectedAgent() {
     const agentId = selectElement.value;
     const agentName = selectElement.options[selectElement.selectedIndex].textContent;
 
-    if (parseInt(agentId) <= 1) { // Garante que IDs <= 1 não podem ser deletados
+    if (parseInt(agentId) <= 1) { 
         alert("Agente Padrão ou ID inválido não pode ser excluído.");
         return;
     }
@@ -310,7 +442,6 @@ async function deleteSelectedAgent() {
     try {
         const token = await user.jwt();
         
-        // Usa o método DELETE e envia o ID como parâmetro de URL
         const response = await fetch(`/.netlify/functions/deleteAgent?agentId=${agentId}`, {
             method: 'DELETE',
             headers: { 
@@ -320,7 +451,6 @@ async function deleteSelectedAgent() {
 
         if (response.ok) {
             alert(`✅ Agente '${agentName}' deletado com sucesso!`);
-            // Recarrega a lista para remover o agente deletado
             loadAgentsList(); 
         } else {
             const data = await response.json();
@@ -336,27 +466,23 @@ async function deleteSelectedAgent() {
 }
 
 
-// Inicializar agent
-const agent = new AgentManager(); // <<< RENOMEADO
+// --- Event Listeners de Inicialização e Gestão ---
 
-// --- Event Listeners de Inicialização e Gestão (CORRIGIDOS) ---
-
-// 1. Ouve o evento 'init' (carregamento do widget). Se o usuário está logado, carrega a lista.
 netlifyIdentity.on('init', (user) => {
     if (user) {
         loadAgentsList();
     }
 });
 
-// 2. Ouve o evento 'login' (usuário acaba de fazer login)
 netlifyIdentity.on('login', loadAgentsList);
 
-// 3. Ouve o evento 'logout'
 netlifyIdentity.on('logout', () => {
     document.getElementById('agent-select').innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
     document.getElementById('delete-agent-btn').disabled = true; 
-    document.getElementById('creator-email').textContent = 'N/D'; // Limpa o criador
-    document.getElementById('agent-function').textContent = 'N/D'; // Limpa a função
+    document.getElementById('edit-agent-btn').disabled = true;
+    document.getElementById('creator-email').textContent = 'N/D';
+    document.getElementById('agent-function').textContent = 'N/D';
+    agent.hideForm();
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
 });
@@ -369,9 +495,7 @@ document.getElementById('user-input').addEventListener('keypress', function(e) {
         sendMessage();
     }
 });
-// Listener para o botão de deletar
 document.getElementById('delete-agent-btn').addEventListener('click', deleteSelectedAgent);
-
 
 async function sendMessage() {
     const input = document.getElementById('user-input');

@@ -76,12 +76,38 @@
             background: #0056b3;
         }
 
-        /* Estilo para o seletor de agente */
+        /* Estilos para Gestão de Agentes */
+        .agent-management-bar {
+            margin-bottom: 15px; 
+            display: flex; 
+            align-items: center;
+            gap: 10px;
+        }
+        .agent-management-bar label {
+            white-space: nowrap;
+        }
         #agent-select {
             padding: 8px;
             border: 1px solid #ccc;
             border-radius: 5px;
             width: 100%;
+        }
+        .agent-info {
+            font-size: 0.9em; 
+            margin-bottom: 10px;
+        }
+        #create-agent-form-container {
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            border-radius: 5px; 
+            margin-bottom: 20px; 
+            background-color: #f8f9fa;
+        }
+        .agent-management-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -91,39 +117,40 @@
         <h1>💊 Plataforma de Agentes IA</h1>
         <div data-netlify-identity-menu></div>
 
-        <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+        <div class="agent-management-bar">
             <label for="agent-select">Agente Ativo:</label>
-            <select id="agent-select" style="width: 60%;"></select>
+            <select id="agent-select"></select>
 
+            <button id="toggle-form-btn"
+                style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;"
+                title="Criar Novo Agente">Novo
+            </button>
+            <button id="edit-agent-btn"
+                style="padding: 5px 10px; background: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer;"
+                title="Editar o agente selecionado" disabled>Editar
+            </button>
             <button id="delete-agent-btn"
                 style="padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;"
                 title="Deletar o agente selecionado" disabled>Deletar
             </button>
-
-            <button id="toggle-form-btn"
-                style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">+
-                Novo Agente</button>
         </div>
 
-        <div id="agent-creator-info" style="font-size: 0.9em; margin-bottom: 10px;">
-            Criado por: <span id="creator-email">N/D</span>
+        <div class="agent-info">
+            <p>Criado por: <span id="creator-email">N/D</span></p>
+            <p>Função: <span id="agent-function">N/D</span></p>
         </div>
+        <div id="create-agent-form-container" style="display: none;">
+            <h3><span id="form-title">Criar Novo</span> Agente</h3>
+            <form id="agent-form"> 
+                <input type="hidden" id="agent-id-field" value="">
 
-        <div id="agent-function-info" style="font-size: 0.9em; margin-bottom: 10px;">
-            Função: <span id="agent-function">N/D</span>
-        </div>
-
-        <div id="create-agent-form-container"
-            style="display: none; border: 1px solid #ddd; padding: 15px; border-radius: 5px; margin-bottom: 20px; background-color: #f8f9fa;">
-            <h3>Criar Novo Agente</h3>
-            <form id="new-agent-form">
                 <div style="margin-bottom: 10px;">
                     <label for="agent-name">Nome do Agente:</label>
                     <input type="text" id="agent-name" required style="width: 100%; padding: 8px; margin-top: 5px;">
                 </div>
                 <div style="margin-bottom: 10px;">
-                    <label for="agent-function">Função/Descrição:</label>
-                    <textarea id="agent-function" required
+                    <label for="agent-function-input">Função/Descrição:</label>
+                    <textarea id="agent-function-input" required
                         style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
                 </div>
                 <div style="margin-bottom: 10px;">

@@ -20,7 +20,7 @@ A modern landing page with an intelligent AI assistant that uses Google Gemini a
 - **Platform**: Netlify
 - **Version Control**: Git
 
-# Working in progress - Currently running locally, will be deployed to Netlify
+# Work in progress - Currently running locally, will be deployed to Netlify
 
 ---
 [PT-BR]
@@ -45,4 +45,4 @@ Uma landing page moderna com um assistente de IA inteligente que utiliza Google 
 - **Plataforma**: Netlify
 - **Versionamento**: Git
 
-# Working in progress, funcionamento está local mas vai ser publicado na netlify
+# Work in progress, funcionamento está local mas vai ser publicado na netlify
