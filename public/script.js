@@ -31,14 +31,15 @@ class AgentManager {
     }
     
     // =================================================================
-    // ✅ NOVOS MÉTODOS DE HISTÓRICO (localStorage)
+    // ✅ MÉTODOS DE HISTÓRICO ATUALIZADOS
     // =================================================================
 
     /**
      * Tenta carregar o histórico do localStorage com base no AgentID atual.
      */
     loadHistory() {
-        const historyKey = `chat_history_${this.selectedAgentId}`;
+        // ✅ CHAVE ATUALIZADA
+        const historyKey = `agent_chat_history_${this.selectedAgentId}`;
         const historyString = localStorage.getItem(historyKey);
         try {
             // Se houver, faz o parse. Senão, retorna array vazio.
@@ -54,7 +55,8 @@ class AgentManager {
      * Salva o histórico atual (em memória) no localStorage.
      */
     saveHistoryToLocal() {
-        const historyKey = `chat_history_${this.selectedAgentId}`;
+        // ✅ CHAVE ATUALIZADA
+        const historyKey = `agent_chat_history_${this.selectedAgentId}`;
         localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
     }
     
@@ -198,7 +200,7 @@ class AgentManager {
                     { role: "assistant", content: data.response }
                 );
                 
-                // ✅ NOVO: Salva o histórico no localStorage
+                // ✅ Salva o histórico no localStorage
                 this.saveHistoryToLocal(); 
                 
                 return data.response;
@@ -306,7 +308,7 @@ async function loadAgentsList() {
             agent.updateCreatorInfo(); 
             agent.updateAgentInfo(); 
             
-            // ✅ NOVO: Carrega e exibe o histórico para o agente inicial
+            // ✅ Carrega e exibe o histórico para o agente inicial
             agent.loadHistory();
             if (agent.chatHistory.length === 0) {
                  agent.displayChatHistory(true, selectedName); 
@@ -536,8 +538,8 @@ async function deleteSelectedAgent() {
         if (response.ok) {
             alert(`✅ Agente '${agentName}' deletado com sucesso!`);
             
-            // ✅ NOVO: Remove o histórico do localStorage
-            localStorage.removeItem(`chat_history_${agentId}`);
+            // ✅ CHAVE ATUALIZADA
+            localStorage.removeItem(`agent_chat_history_${agentId}`);
             
             loadAgentsList(); 
         } else {
