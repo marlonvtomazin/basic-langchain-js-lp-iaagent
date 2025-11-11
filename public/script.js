@@ -5,15 +5,23 @@ class AgentManager {
         this.selectedAgentId = 1; // ID padrão
         this.agentsList = []; // Para armazenar a lista completa (inclui createdBy)
         
-        // Listener para a seleção de agente (MODIFICADO para controlar o botão Deletar/EDITAR e o Criador)
+        // Listener para a seleção de agente (MODIFICADO para carregar o histórico)
         document.getElementById('agent-select').addEventListener('change', (e) => {
             this.selectedAgentId = e.target.value; 
-            this.chatHistory = []; // Limpa o histórico ao mudar o agente
+            
+            // 1. Tenta carregar o histórico do localStorage
+            this.loadHistory(); 
             
             const selectedName = e.target.options[e.target.selectedIndex].textContent;
             
-            document.getElementById('chat-messages').innerHTML = 
-                `<div class="message assistant-message">Agente **${selectedName}** selecionado. Novo chat iniciado.</div>`;
+            // 2. Exibe o histórico carregado ou a mensagem inicial
+            if (this.chatHistory.length === 0) {
+                 this.displayChatHistory(true, selectedName); 
+            } else {
+                 this.displayChatHistory(); 
+                 // Mensagem de confirmação de histórico carregado
+                 addMessageToChat('assistant', `Agente **${selectedName}** selecionado. Histórico de **${this.chatHistory.length}** mensagens carregado do cache local.`);
+            }
             
             this.controlAgentButtons(parseInt(this.selectedAgentId));
             this.updateCreatorInfo(); 
@@ -21,6 +29,64 @@ class AgentManager {
             this.hideForm(); // Esconde o formulário ao trocar de agente
         });
     }
+    
+    // =================================================================
+    // ✅ NOVOS MÉTODOS DE HISTÓRICO (localStorage)
+    // =================================================================
+
+    /**
+     * Tenta carregar o histórico do localStorage com base no AgentID atual.
+     */
+    loadHistory() {
+        const historyKey = `chat_history_${this.selectedAgentId}`;
+        const historyString = localStorage.getItem(historyKey);
+        try {
+            // Se houver, faz o parse. Senão, retorna array vazio.
+            const history = historyString ? JSON.parse(historyString) : [];
+            this.chatHistory = history; // Atualiza o histórico em memória
+        } catch (e) {
+            console.error("Erro ao carregar histórico local:", e);
+            this.chatHistory = [];
+        }
+    }
+
+    /**
+     * Salva o histórico atual (em memória) no localStorage.
+     */
+    saveHistoryToLocal() {
+        const historyKey = `chat_history_${this.selectedAgentId}`;
+        localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
+    }
+    
+    /**
+     * Exibe o histórico na interface, limpando o chat primeiro.
+     * @param {boolean} initialMessage - Se deve exibir apenas a mensagem de boas-vindas.
+     * @param {string} agentName - O nome do agente para a mensagem de boas-vindas.
+     */
+    displayChatHistory(initialMessage = false, agentName = "Agente") {
+        const chatMessages = document.getElementById('chat-messages');
+        chatMessages.innerHTML = ''; // Limpa antes de exibir
+
+        if (initialMessage) {
+            const htmlContent = `Agente **${agentName}** selecionado. Novo chat iniciado.`;
+            // Adiciona quebra de linha para formatar o nome do agente em negrito
+            chatMessages.innerHTML = 
+                `<div class="message assistant-message">${htmlContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</div>`;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return;
+        }
+
+        this.chatHistory.forEach(msg => {
+            const sender = msg.role === 'human' ? 'user' : 'assistant'; 
+            addMessageToChat(sender, msg.content);
+        });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // =================================================================
+    // FIM DOS MÉTODOS DE HISTÓRICO
+    // =================================================================
+
 
     // ✅ NOVO MÉTODO: Controla os botões Deletar e Editar
     controlAgentButtons(selectedId) {
@@ -131,6 +197,10 @@ class AgentManager {
                     { role: "human", content: message },
                     { role: "assistant", content: data.response }
                 );
+                
+                // ✅ NOVO: Salva o histórico no localStorage
+                this.saveHistoryToLocal(); 
+                
                 return data.response;
             }
         } catch (error) {
@@ -143,13 +213,20 @@ class AgentManager {
 // Inicializar agent 
 const agent = new AgentManager(); 
 
-// Função para adicionar mensagens ao chat
+// Função para adicionar mensagens ao chat (Melhorada para formatar Markdown básico)
 function addMessageToChat(sender, message) {
     const chatMessages = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
     
     messageDiv.className = `message ${sender}-message`;
-    messageDiv.innerHTML = message; 
+    
+    // Converte Markdown básico para HTML para melhor visualização
+    const htmlContent = message
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+        .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italic
+        .replace(/\r\n|\n/g, '<br>'); // Quebras de linha
+
+    messageDiv.innerHTML = htmlContent; 
     
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -160,7 +237,7 @@ async function loadAgentsList() {
     const selectElement = document.getElementById('agent-select');
     
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
-    agent.controlAgentButtons(1); // Usa o método da classe
+    agent.controlAgentButtons(1); 
     
     try {
         const user = netlifyIdentity.currentUser();
@@ -189,12 +266,24 @@ async function loadAgentsList() {
         }
 
         const agents = await response.json();
-        agent.agentsList = agents; 
+        // Adiciona um agente padrão (fallback) que não existe no DB
+        const defaultAgent = { 
+            AgentID: 1, 
+            AgentName: 'Assistente Padrão (Fallback)', 
+            createdBy: 'Sistema',
+            agentFunction: 'Assistente de uso geral e fallback.',
+            systemPrompt: 'Você é um Assistente especializado. Responda de forma clara, concisa e precisa.',
+            shouldSearchPrompt: 'Analise se a pergunta requer informações atualizadas. Responda APENAS com "SIM" ou "NÃO".'
+        };
+        // O seu arquivo de getAgents retorna apenas os agentes do DB, por isso é crucial manter a lógica do Fallback.
+        // Já que o seu código original não incluía o Agente ID 1, vou adicionar ele aqui manualmente:
+        const agentsWithFallback = [defaultAgent, ...agents.filter(a => a.AgentID !== 1)];
+        agent.agentsList = agentsWithFallback; 
         
         selectElement.innerHTML = ''; 
         
-        if (agents && agents.length > 0) {
-            agents.forEach(agentItem => {
+        if (agentsWithFallback && agentsWithFallback.length > 0) {
+            agentsWithFallback.forEach(agentItem => {
                 const option = document.createElement('option');
                 option.value = agentItem.AgentID;
                 option.textContent = agentItem.AgentName;
@@ -202,16 +291,10 @@ async function loadAgentsList() {
             });
             
             let newSelectedId = agent.selectedAgentId;
-            const validAgentIds = agents.map(a => a.AgentID.toString());
+            const validAgentIds = agentsWithFallback.map(a => a.AgentID.toString());
 
             if (!validAgentIds.includes(newSelectedId.toString())) {
-                newSelectedId = validAgentIds.includes('1') ? 1 : agents[0].AgentID;
-            }
-
-            if (!validAgentIds.includes('1') && agents.length > 0) {
-                 newSelectedId = agents[0].AgentID; 
-            } else if (agents.length === 0) {
-                 newSelectedId = 1; 
+                newSelectedId = 1; // Volta para o padrão
             }
 
             agent.selectedAgentId = newSelectedId;
@@ -222,16 +305,23 @@ async function loadAgentsList() {
             agent.controlAgentButtons(parseInt(newSelectedId));
             agent.updateCreatorInfo(); 
             agent.updateAgentInfo(); 
-
-            addMessageToChat('assistant', `Agente **${selectedName}** carregado. Comece a conversar!`);
+            
+            // ✅ NOVO: Carrega e exibe o histórico para o agente inicial
+            agent.loadHistory();
+            if (agent.chatHistory.length === 0) {
+                 agent.displayChatHistory(true, selectedName); 
+            } else {
+                 agent.displayChatHistory(); 
+                 addMessageToChat('assistant', `Agente **${selectedName}** carregado. Histórico de **${agent.chatHistory.length}** mensagens carregado do cache local.`);
+            }
             
         } else {
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
              agent.controlAgentButtons(1);
-             agent.agentsList = [];
+             agent.agentsList = [defaultAgent];
              agent.updateCreatorInfo(); 
              agent.updateAgentInfo(); 
-             addMessageToChat('assistant', 'Nenhum agente encontrado no DB. Usando o padrão.');
+             agent.displayChatHistory(true, 'Assistente Padrão');
              agent.selectedAgentId = 1;
         }
 
@@ -246,23 +336,21 @@ async function loadAgentsList() {
     }
 }
 
-// Listener para mostrar/esconder o formulário (e garantir o modo 'Criar')
+// Listener para mostrar/esconder o formulário
 document.getElementById('toggle-form-btn').addEventListener('click', () => {
     const formContainer = document.getElementById('create-agent-form-container');
     const formTitle = document.getElementById('form-title');
     
-    // Se o formulário estiver visível e no modo 'Criar', esconde.
     if (formContainer.style.display === 'block' && formTitle.textContent.includes('Criar')) {
         agent.hideForm();
     } else {
-        // Modo Criação
-        agent.hideForm(); // Reseta para o modo "Criar"
+        agent.hideForm(); 
         formContainer.style.display = 'block';
         document.getElementById('form-message').textContent = 'Preencha os campos para criar um novo agente.';
     }
 });
 
-// ✅ NOVO Listener para EDITAR Agente
+// Listener para EDITAR Agente
 document.getElementById('edit-agent-btn').addEventListener('click', () => {
     if (parseInt(agent.selectedAgentId) > 1) {
         agent.fillAgentFormForEdit();
@@ -271,18 +359,15 @@ document.getElementById('edit-agent-btn').addEventListener('click', () => {
     }
 });
 
-// ✅ MODIFICADO: Listener para submissão do formulário (Criação ou Edição)
+// Listener para submissão do formulário (Criação ou Edição)
 document.getElementById('agent-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    // Verifica o campo oculto do ID
     const agentId = document.getElementById('agent-id-field').value;
     
     if (agentId) {
-        // Modo Edição (Update)
         await updateAgent();
     } else {
-        // Modo Criação (Create)
         await createNewAgent(); 
     }
 });
@@ -300,7 +385,7 @@ async function createNewAgent() {
     
     const agentData = {
         AgentName: document.getElementById('agent-name').value,
-        agentFunction: document.getElementById('agent-function-input').value, // ✅ CORRIGIDO ID AQUI
+        agentFunction: document.getElementById('agent-function-input').value,
         systemPrompt: document.getElementById('system-prompt').value,
         shouldSearchPrompt: document.getElementById('search-prompt').value,
         createdBy: user.email, 
@@ -347,7 +432,7 @@ async function createNewAgent() {
     }
 }
 
-// ✅ NOVA FUNÇÃO: Lógica de atualização (edição)
+// Função: Lógica de atualização (edição)
 async function updateAgent() {
     const user = netlifyIdentity.currentUser();
     const formMessage = document.getElementById('form-message');
@@ -382,7 +467,6 @@ async function updateAgent() {
     try {
         const token = await user.jwt();
         
-        // Requisição PUT para a nova Netlify Function
         const response = await fetch('/.netlify/functions/updateAgent', {
             method: 'PUT',
             headers: { 
@@ -451,6 +535,10 @@ async function deleteSelectedAgent() {
 
         if (response.ok) {
             alert(`✅ Agente '${agentName}' deletado com sucesso!`);
+            
+            // ✅ NOVO: Remove o histórico do localStorage
+            localStorage.removeItem(`chat_history_${agentId}`);
+            
             loadAgentsList(); 
         } else {
             const data = await response.json();
@@ -471,6 +559,9 @@ async function deleteSelectedAgent() {
 netlifyIdentity.on('init', (user) => {
     if (user) {
         loadAgentsList();
+    } else {
+        document.getElementById('chat-messages').innerHTML = 
+        `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
     }
 });
 
