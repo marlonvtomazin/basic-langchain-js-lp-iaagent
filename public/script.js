@@ -10,7 +10,7 @@ class AgentManager {
             this.selectedAgentId = e.target.value; 
             
             // 1. Tenta carregar o histórico do localStorage
-            this.loadHistory(); 
+            this.loadHistory(netlifyIdentity.currentUser()); // Passa o objeto User
             
             const selectedName = e.target.options[e.target.selectedIndex].textContent;
             
@@ -31,20 +31,37 @@ class AgentManager {
     }
     
     // =================================================================
-    // ✅ MÉTODOS DE HISTÓRICO ATUALIZADOS
+    // ✅ MÉTODOS DE HISTÓRICO ATUALIZADOS PARA USAR O USER ID
     // =================================================================
+    
+    /**
+     * Gera a chave única de localStorage (USER + AGENT).
+     * @param {object} user - O objeto user do Netlify Identity.
+     * @returns {string} A chave única.
+     */
+    generateStorageKey(user) {
+        if (!user || !user.email) return null;
+        // Limpa o email para usar como chave de forma segura
+        const safeEmail = user.email.replace(/[^a-zA-Z0-9]/g, '_');
+        return `chat_user_${safeEmail}_agent_${this.selectedAgentId}`;
+    }
 
     /**
-     * Tenta carregar o histórico do localStorage com base no AgentID atual.
+     * Tenta carregar o histórico do localStorage com base no UserID e AgentID.
+     * @param {object} user - O objeto user do Netlify Identity.
      */
-    loadHistory() {
-        // ✅ CHAVE ATUALIZADA
-        const historyKey = `agent_chat_history_${this.selectedAgentId}`;
+    loadHistory(user) {
+        const historyKey = this.generateStorageKey(user);
+        
+        if (!historyKey) {
+            this.chatHistory = [];
+            return;
+        }
+        
         const historyString = localStorage.getItem(historyKey);
         try {
-            // Se houver, faz o parse. Senão, retorna array vazio.
             const history = historyString ? JSON.parse(historyString) : [];
-            this.chatHistory = history; // Atualiza o histórico em memória
+            this.chatHistory = history; 
         } catch (e) {
             console.error("Erro ao carregar histórico local:", e);
             this.chatHistory = [];
@@ -53,10 +70,16 @@ class AgentManager {
 
     /**
      * Salva o histórico atual (em memória) no localStorage.
+     * @param {object} user - O objeto user do Netlify Identity.
      */
-    saveHistoryToLocal() {
-        // ✅ CHAVE ATUALIZADA
-        const historyKey = `agent_chat_history_${this.selectedAgentId}`;
+    saveHistoryToLocal(user) {
+        const historyKey = this.generateStorageKey(user);
+        
+        if (!historyKey) {
+            console.error("Não foi possível salvar: Usuário não logado ou chave inválida.");
+            return;
+        }
+        
         localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
     }
     
@@ -200,8 +223,8 @@ class AgentManager {
                     { role: "assistant", content: data.response }
                 );
                 
-                // ✅ Salva o histórico no localStorage
-                this.saveHistoryToLocal(); 
+                // ✅ NOVO: Salva o histórico no localStorage (inclui USER ID)
+                this.saveHistoryToLocal(user); 
                 
                 return data.response;
             }
@@ -241,8 +264,9 @@ async function loadAgentsList() {
     selectElement.innerHTML = '<option value="" disabled selected>Carregando Agentes...</option>';
     agent.controlAgentButtons(1); 
     
+    const user = netlifyIdentity.currentUser();
+    
     try {
-        const user = netlifyIdentity.currentUser();
         if (!user) {
              selectElement.innerHTML = '<option value="" disabled selected>Faça login para carregar.</option>';
              agent.agentsList = [];
@@ -308,8 +332,8 @@ async function loadAgentsList() {
             agent.updateCreatorInfo(); 
             agent.updateAgentInfo(); 
             
-            // ✅ Carrega e exibe o histórico para o agente inicial
-            agent.loadHistory();
+            // ✅ NOVO: Carrega e exibe o histórico para o agente inicial (inclui USER ID)
+            agent.loadHistory(user);
             if (agent.chatHistory.length === 0) {
                  agent.displayChatHistory(true, selectedName); 
             } else {
@@ -538,8 +562,11 @@ async function deleteSelectedAgent() {
         if (response.ok) {
             alert(`✅ Agente '${agentName}' deletado com sucesso!`);
             
-            // ✅ CHAVE ATUALIZADA
-            localStorage.removeItem(`agent_chat_history_${agentId}`);
+            // ✅ NOVO: Remove o histórico do localStorage do usuário atual
+            const historyKey = agent.generateStorageKey(user);
+            if(historyKey) {
+                localStorage.removeItem(historyKey);
+            }
             
             loadAgentsList(); 
         } else {
@@ -567,6 +594,7 @@ netlifyIdentity.on('init', (user) => {
     }
 });
 
+// Ao fazer login ou trocar de agente, o histórico é carregado com o user.email
 netlifyIdentity.on('login', loadAgentsList);
 
 netlifyIdentity.on('logout', () => {
@@ -578,6 +606,8 @@ netlifyIdentity.on('logout', () => {
     agent.hideForm();
     document.getElementById('chat-messages').innerHTML = 
         `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
+    // Nota: O histórico de chat de TODOS os agentes do usuário anterior permanece no localStorage,
+    // mas não será acessível por outro usuário por causa do email na chave.
 });
 
 
@@ -594,7 +624,9 @@ async function sendMessage() {
     const input = document.getElementById('user-input');
     const message = input.value.trim();
     
-    if (!netlifyIdentity.currentUser()) {
+    const user = netlifyIdentity.currentUser();
+
+    if (!user) {
         alert('Por favor, faça login para enviar mensagens.');
         netlifyIdentity.open();
         return;
