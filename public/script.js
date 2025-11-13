@@ -1,543 +1,364 @@
+// =========================================================
+// CONFIGURAÇÃO E FUNÇÕES DE UTILIDADE
+// =========================================================
+const CHAT_HISTORY_KEY = 'chatHistory';
+
+// Função utilitária para adicionar mensagens à interface e ao histórico
+function addMessageToChat(role, content) {
+    const chatMessages = document.getElementById('chat-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}-message`;
+    messageDiv.innerHTML = content; // Permite formatação em Markdown na resposta
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Adiciona ao histórico do agente
+    agent.chatHistory.push({ role: role, content: content });
+    
+    // Salva no localStorage para cache rápido
+    agent.saveLocalHistory();
+}
+
+// =========================================================
+// CLASSE PRINCIPAL: AGENTMANAGER
+// =========================================================
 class AgentManager { 
     constructor() {
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
-        // ✅ NOVO ENDPOINT DE CARREGAMENTO DO DB
+        // ✅ ENDPOINT DE CARREGAMENTO DO DB
         this.historyApiUrl = '/.netlify/functions/getChatHistory'; 
+        // ✅ NOVO ENDPOINT DE SALVAMENTO DE HISTÓRICO
+        this.saveHistoryApiUrl = '/.netlify/functions/saveChatHistory'; 
         this.selectedAgentId = 1; // ID padrão
-        this.agentsList = []; // Para armazenar a lista completa (inclui createdBy)
+        this.agentsList = []; // Para armazenar a lista completa
         
-        // Listener para a seleção de agente (MODIFICADO para carregar o histórico)
+        // Listener para a seleção de agente
         document.getElementById('agent-select').addEventListener('change', async (e) => {
             this.selectedAgentId = e.target.value; 
             
-            // 1. Tenta carregar o histórico do localStorage ou DB
             const user = netlifyIdentity.currentUser();
+            
+            // 1. Carrega o histórico (tentando DB se localStorage falhar)
             if (user) {
                 await this.loadHistory(user); 
             } else {
                 this.chatHistory = [];
             }
-            
+
             const selectedName = e.target.options[e.target.selectedIndex].textContent;
             
-            // 2. Exibe o histórico carregado ou a mensagem inicial
-            if (this.chatHistory.length === 0) {
-                 this.displayChatHistory(true, selectedName); 
-            } else {
-                 this.displayChatHistory(); 
-                 // Mensagem de confirmação de histórico carregado
-                 addMessageToChat('assistant', `Agente **${selectedName}** selecionado. Histórico de **${this.chatHistory.length}** mensagens carregado.`);
-            }
-            
+            // 2. Exibe o histórico
+            this.displayChatHistory(); 
+
+            // Mensagem de status após carregar o histórico
+            const chatMessages = document.getElementById('chat-messages');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'message assistant-message';
+            const statusText = this.chatHistory.length > 0 
+                ? `Agente **${selectedName}** selecionado. Histórico de **${this.chatHistory.length}** mensagens carregado.`
+                : `Agente **${selectedName}** selecionado. Novo chat iniciado.`;
+            statusDiv.innerHTML = statusText;
+            chatMessages.appendChild(statusDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
             this.controlAgentButtons(parseInt(this.selectedAgentId));
             this.updateCreatorInfo(); 
             this.updateAgentInfo();
             this.hideForm(); // Esconde o formulário ao trocar de agente
         });
-        
-        // Listener do botão de editar
-        document.getElementById('edit-agent-btn').addEventListener('click', () => this.showEditForm());
-    }
-    
-    // =================================================================
-    // MÉTODOS DE HISTÓRICO ADICIONADOS/MODIFICADOS
-    // =================================================================
-    
-    /**
-     * Gera a chave única de localStorage (USER + AGENT).
-     */
-    generateStorageKey(user) {
-        if (!user || !user.email) return null;
-        // Limpa o email para usar como chave de forma segura
-        const safeEmail = user.email.replace(/[^a-zA-Z0-9]/g, '_');
-        return `chat_user_${safeEmail}_agent_${this.selectedAgentId}`;
     }
 
-    /**
-     * Tenta carregar o histórico: 1. LocalStorage (Cache). 2. DB (Fallback).
-     * @param {object} user - O objeto user do Netlify Identity.
-     */
-    async loadHistory(user) {
-        this.chatHistory = []; // Limpa o histórico em memória antes de tentar carregar
-        if (!user) {
-            return;
-        }
+    // =========================================================
+    // MÉTODOS DE PERSISTÊNCIA (DB e LocalStorage)
+    // =========================================================
 
-        const historyKey = this.generateStorageKey(user);
-        let historyString = localStorage.getItem(historyKey);
-        
-        // 1. TENTA CARREGAR DO LOCALSTORAGE (CACHE)
+    // Salva o histórico no LocalStorage (cache rápido)
+    saveLocalHistory() {
         try {
-            if (historyString) {
-                const history = JSON.parse(historyString);
-                // Verifica se o histórico não está vazio (pode ter sido salvo como [])
-                if (history && history.length > 0) { 
-                    this.chatHistory = history;
-                    console.log(`Histórico carregado do localStorage (${history.length} msgs)`);
-                    return; // SUCESSO: Retorna o histórico rápido
-                }
-            }
+            localStorage.setItem(`${CHAT_HISTORY_KEY}-${this.selectedAgentId}`, JSON.stringify(this.chatHistory));
         } catch (e) {
-            console.error("Erro ao carregar histórico local, limpando cache:", e);
-            localStorage.removeItem(historyKey);
-            // Continua para o DB se o local cache estiver corrompido
+            console.error('Erro ao salvar no LocalStorage:', e);
         }
-        
-        // 2. FALHOU NO CACHE. TENTA CARREGAR DO BANCO DE DADOS.
-        await this.loadHistoryFromDB(user);
     }
     
-    /**
-     * Carrega o histórico do DB via Netlify Function.
-     * @param {object} user - O objeto user do Netlify Identity.
-     */
-    async loadHistoryFromDB(user) {
-        
-        try {
-            console.log("LocalStorage vazio ou inválido. Tentando carregar histórico do DB...");
-            const token = await user.jwt();
-
-            const response = await fetch(`${this.historyApiUrl}?agentId=${this.selectedAgentId}`, {
-                method: 'GET',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` 
-                }
-            });
-
-            if (!response.ok) {
-                 if (response.status === 404) {
-                     console.log("Histórico não encontrado no DB. Iniciando novo chat.");
-                 } else {
-                     console.error(`Erro ao buscar histórico do DB: ${response.statusText}`);
-                 }
-                 return; // Retorna array vazio (this.chatHistory já é [])
-            }
-            
-            const data = await response.json();
-            
-            if (data.chatHistory && Array.isArray(data.chatHistory) && data.chatHistory.length > 0) {
-                 this.chatHistory = data.chatHistory;
-                 
-                 // 3. SUCESSO DO DB: SALVA NO LOCALSTORAGE PARA CACHE FUTURO
-                 this.saveHistoryToLocal(user); 
-                 console.log(`Histórico de ${this.chatHistory.length} mensagens carregado do DB e salvo no cache local.`);
-            }
-
-        } catch (error) {
-            console.error('Erro de rede ao buscar histórico do DB:', error);
-        }
-    }
-
-    /**
-     * Salva o histórico atual (em memória) no localStorage.
-     * @param {object} user - O objeto user do Netlify Identity.
-     */
-    saveHistoryToLocal(user) {
-        const historyKey = this.generateStorageKey(user);
-        
-        if (!historyKey) {
+    // ✅ NOVO MÉTODO: Salva o histórico de chat no MongoDB
+    async saveHistory(user) {
+        if (!user || !user.email) {
+            console.error('Usuário não logado, impossível salvar histórico no DB.');
             return;
         }
-        
-        localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
-        console.log("Histórico atualizado no localStorage.");
-    }
-    
-    // =================================================================
-    // MÉTODOS DE CHAT MODIFICADOS (Incluindo userEmail no payload)
-    // =================================================================
-    
-    async sendMessage(message) {
-        const user = netlifyIdentity.currentUser(); 
-        
-        if (!user) {
-            alert('Você precisa estar logado para usar o assistente.');
-            netlifyIdentity.open(); 
-            return "Por favor, faça login para continuar.";
-        }
-        const token = await user.jwt(); 
 
         try {
-            const response = await fetch(this.apiUrl, {
+            const response = await fetch(this.saveHistoryApiUrl, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` 
+                    'Authorization': `Bearer ${user.token.access_token}`
                 },
-                body: JSON.stringify({ 
-                    message, 
-                    chatHistory: this.chatHistory,
-                    agentId: this.selectedAgentId,
-                    // ✅ NOVO: Passa o user email para o backend salvar no DB
-                    userEmail: user.email 
+                body: JSON.stringify({
+                    agentId: parseInt(this.selectedAgentId),
+                    chatHistory: this.chatHistory
                 })
             });
 
-            if (response.status === 401) {
-                // ... (lógica de 401)
-                return "Sua sessão expirou. Por favor, faça login novamente.";
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error('Erro ao salvar histórico no DB:', errorData.error);
+            } else {
+                 console.log(`Histórico salvo com sucesso no DB para Agente ${this.selectedAgentId}.`);
             }
-
-            const data = await response.json();
-            
-            if (data.response) {
-                this.chatHistory.push(
-                    { role: "human", content: message },
-                    { role: "assistant", content: data.response }
-                );
-                
-                // 1. SALVA NO LOCALSTORAGE (CACHE) a cada conversa
-                this.saveHistoryToLocal(user); 
-                
-                // 2. O BACKEND (agent.js) é responsável por salvar/atualizar no DB
-                
-                return data.response;
-            }
-            // ... (resto do tratamento de erro)
-            return "Erro desconhecido ao receber resposta.";
-
         } catch (error) {
-            console.error('Erro:', error);
-            return "Desculpe, estou com problemas técnicos no momento.";
+            console.error('Erro de rede ao salvar histórico no DB:', error);
         }
     }
     
-    // =================================================================
-    // MÉTODOS AUXILIARES
-    // =================================================================
-    
-    controlAgentButtons(selectedId) {
-        const deleteButton = document.getElementById('delete-agent-btn');
-        const editButton = document.getElementById('edit-agent-btn');
+    // ✅ MÉTODO MODIFICADO: Tenta LocalStorage, se vazio, tenta DB
+    async loadHistory(user) {
+        // 1. Tenta carregar do LocalStorage (cache)
+        try {
+            const localHistory = localStorage.getItem(`${CHAT_HISTORY_KEY}-${this.selectedAgentId}`);
+            if (localHistory) {
+                this.chatHistory = JSON.parse(localHistory);
+                return; // Se encontrou local, usa e sai
+            }
+        } catch (e) {
+            // Se o LocalStorage estiver vazio ou inválido, continua para o DB
+            console.warn('LocalStorage vazio ou inválido. Tentando carregar histórico do DB...');
+        }
         
-        // Garante que IDs <= 1 não possam ser deletados ou editados
-        if (selectedId <= 1 || isNaN(selectedId)) {
-            deleteButton.disabled = true;
-            editButton.disabled = true;
+        // 2. Se LocalStorage falhou, tenta carregar do DB
+        if (!user || !user.email) {
+            this.chatHistory = [];
             return;
         }
-        
-        // Lógica de controle de usuário
-        const user = netlifyIdentity.currentUser();
-        const selectedAgent = this.agentsList.find(a => a.AgentID == selectedId);
-        
-        if (selectedAgent && user) {
-            const isCreator = selectedAgent.createdBy === user.email;
-            deleteButton.disabled = !isCreator;
-            editButton.disabled = !isCreator;
-        } else {
-            deleteButton.disabled = true;
-            editButton.disabled = true;
-        }
-    }
 
-    updateCreatorInfo() {
-        const creatorSpan = document.getElementById('creator-email');
-        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
-        
-        if (selectedAgent && selectedAgent.createdBy) {
-            creatorSpan.textContent = `Criador: ${selectedAgent.createdBy}`;
-            creatorSpan.style.display = 'block';
-        } else {
-            creatorSpan.textContent = 'Criador: N/A';
-            creatorSpan.style.display = 'block';
-        }
-    }
-    
-    updateAgentInfo() {
-        const infoDiv = document.getElementById('agent-info');
-        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
-        
-        if (selectedAgent && selectedAgent.agentFunction) {
-            infoDiv.innerHTML = `**Função:** ${selectedAgent.agentFunction}`;
-            infoDiv.style.display = 'block';
-        } else {
-            infoDiv.innerHTML = '';
-            infoDiv.style.display = 'none';
-        }
-    }
-
-    displayChatHistory(isNew = false, agentName = 'Assistente') {
-        const chatMessagesDiv = document.getElementById('chat-messages');
-        chatMessagesDiv.innerHTML = '';
-
-        if (isNew) {
-            chatMessagesDiv.innerHTML = 
-                `<div class="message assistant-message">Agente **${agentName}** selecionado. Novo chat iniciado.</div>`;
-        } else {
-            this.chatHistory.forEach(msg => {
-                if (msg.role === 'human') {
-                    addMessageToChat('user', msg.content);
-                } else if (msg.role === 'assistant') {
-                    addMessageToChat('assistant', msg.content);
+        try {
+            const response = await fetch(`${this.historyApiUrl}?agentId=${this.selectedAgentId}`, {
+                headers: {
+                    'Authorization': `Bearer ${user.token.access_token}`
                 }
             });
+
+            if (response.ok) {
+                this.chatHistory = await response.json();
+                // Salva o histórico do DB no LocalStorage para cache na próxima vez
+                this.saveLocalHistory(); 
+                console.log(`Histórico de ${this.chatHistory.length} mensagens carregado do DB.`);
+            } else {
+                // Se der 404/401, inicia um novo chat
+                console.warn('Histórico não encontrado no DB. Iniciando novo chat.');
+                this.chatHistory = [];
+            }
+        } catch (error) {
+            console.error('Erro de rede ou função Netlify não encontrada:', error);
+            this.chatHistory = [];
         }
-        chatMessagesDiv.scrollTop = chatMessagesDiv.scrollHeight;
     }
     
-    showEditForm() {
-        const formDiv = document.getElementById('agent-form-container');
-        const formTitle = document.getElementById('agent-form-title');
-        const form = document.getElementById('agent-form');
-        const saveButton = document.getElementById('save-agent-btn');
-        const formMessage = document.getElementById('form-message');
-        
+    // Exibe o histórico na interface
+    displayChatHistory() {
+        const chatMessages = document.getElementById('chat-messages');
+        chatMessages.innerHTML = ''; 
+
+        this.chatHistory.forEach(msg => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${msg.role}-message`;
+            messageDiv.innerHTML = msg.content;
+            chatMessages.appendChild(messageDiv);
+        });
+
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+
+    // =========================================================
+    // MÉTODOS DE AGENTE E ADMINISTRAÇÃO
+    // =========================================================
+
+    // Envia mensagem ao backend e recebe a resposta do agente
+    async sendMessage(message) {
+        const user = netlifyIdentity.currentUser();
+        const token = user.token.access_token;
         const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
-        
+
         if (!selectedAgent) {
-            alert("Agente não encontrado.");
-            return;
+            throw new Error("Agente não encontrado.");
         }
 
-        formTitle.textContent = `Editar Agente: ${selectedAgent.AgentName}`;
-        document.getElementById('agent-id-input').value = selectedAgent.AgentID;
-        document.getElementById('agent-name-input').value = selectedAgent.AgentName;
-        document.getElementById('agent-function-input').value = selectedAgent.agentFunction;
-        document.getElementById('system-prompt').value = selectedAgent.systemPrompt;
-        document.getElementById('search-prompt').value = selectedAgent.shouldSearchPrompt;
-        saveButton.textContent = 'Atualizar Agente';
-        form.removeEventListener('submit', saveNewAgent); // Remove o listener de criação
-        form.addEventListener('submit', updateExistingAgent); // Adiciona o listener de edição
-        formMessage.textContent = '';
-        formDiv.style.display = 'block';
-    }
-    
-    hideForm() {
-        document.getElementById('agent-form-container').style.display = 'none';
-        // Limpa o formulário e restaura o listener de criação por padrão, caso o usuário abra ele novamente
-        document.getElementById('agent-form').reset();
-        document.getElementById('agent-form').removeEventListener('submit', updateExistingAgent);
-        document.getElementById('agent-form').addEventListener('submit', saveNewAgent); 
-        document.getElementById('save-agent-btn').textContent = 'Salvar Agente';
-    }
-}
+        const payload = {
+            question: message,
+            agentId: parseInt(this.selectedAgentId),
+            // Mapeia o histórico para o formato que a API espera
+            chatHistory: this.chatHistory.map(m => ({ role: m.role, content: m.content })),
+            systemPrompt: selectedAgent.systemPrompt,
+            shouldSearchPrompt: selectedAgent.shouldSearchPrompt
+        };
 
-
-// Inicializar agent 
-const agent = new AgentManager(); 
-
-// Função de utilidade para adicionar mensagens ao DOM (mantida)
-function addMessageToChat(role, content) {
-    const chatMessagesDiv = document.getElementById('chat-messages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}-message`;
-    
-    // Converte markdown para HTML (exemplo simples: **texto** para <strong>texto</strong>)
-    let formattedContent = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    messageDiv.innerHTML = formattedContent;
-    chatMessagesDiv.appendChild(messageDiv);
-    chatMessagesDiv.scrollTop = chatMessagesDiv.scrollHeight;
-}
-
-
-// FUNÇÃO: Carrega agentes do Netlify Function (getAgents)
-async function loadAgentsList() {
-    const user = netlifyIdentity.currentUser();
-    const selectElement = document.getElementById('agent-select');
-    selectElement.innerHTML = '';
-    
-    if (!user) {
-        selectElement.innerHTML = '<option value="1" selected>Faça Login para carregar...</option>';
-        document.getElementById('chat-messages').innerHTML = 
-            `<div class="message assistant-message">Olá! Por favor, faça login e selecione um Agente para começar.</div>`;
-        agent.agentsList = [];
-        agent.controlAgentButtons(1); // Desabilita botões
-        agent.updateCreatorInfo();
-        agent.updateAgentInfo();
-        return;
-    }
-
-    try {
-        const token = await user.jwt();
-
-        const response = await fetch('/.netlify/functions/getAgents', {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetch(this.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            throw new Error(`Erro ao buscar agentes: ${response.statusText}`);
+            const error = await response.json();
+            throw new Error(error.error || 'Erro desconhecido do agente.');
         }
 
-        const agents = await response.json();
-        
-        // Fallback Agent (sempre o primeiro)
-        const fallbackAgent = {
-            AgentID: 1, 
-            AgentName: "Assistente Padrão (Fallback)",
-            agentFunction: "Assistente geral. Use para testes.",
-            createdBy: "sistema",
-            systemPrompt: "", // Vazio porque o backend usa o fallback
-            shouldSearchPrompt: ""
-        };
-        
-        agent.agentsList = [fallbackAgent, ...agents.filter(a => a.AgentID > 1)];
-
-        if (agent.agentsList.length > 0) {
-            agent.agentsList.forEach(a => {
-                const option = document.createElement('option');
-                option.value = a.AgentID;
-                option.textContent = a.AgentName;
-                selectElement.appendChild(option);
-            });
-
-            // Seleciona o primeiro agente ou o agente ativo
-            selectElement.value = agent.selectedAgentId;
-            
-            // ✅ NOVO: Chama a nova função loadHistory assíncrona
-            if (user) {
-                await agent.loadHistory(user); 
-            }
-            
-            const selectedName = selectElement.options[selectElement.selectedIndex].textContent;
-
-            if (agent.chatHistory.length === 0) {
-                 agent.displayChatHistory(true, selectedName); 
-            } else {
-                 agent.displayChatHistory(); 
-                 // Mensagem atualizada
-                 addMessageToChat('assistant', `Agente **${selectedName}** carregado. Histórico de **${agent.chatHistory.length}** mensagens carregado.`);
-            }
-            
-            agent.controlAgentButtons(parseInt(agent.selectedAgentId));
-            agent.updateCreatorInfo();
-            agent.updateAgentInfo();
-            
-        } else {
-            selectElement.innerHTML = '<option value="1" selected>Nenhum Agente encontrado</option>';
-            document.getElementById('chat-messages').innerHTML = 
-                `<div class="message assistant-message">Nenhum agente disponível. Crie um novo.</div>`;
-            agent.controlAgentButtons(1);
-            agent.updateCreatorInfo();
-            agent.updateAgentInfo();
-        }
-        
-    } catch (error) {
-        console.error('Erro ao carregar lista de agentes:', error);
-        selectElement.innerHTML = '<option value="1" selected>Erro ao carregar Agentes</option>';
+        const data = await response.json();
+        return data.response;
     }
-}
 
-// FUNÇÕES DE CRIAÇÃO/EDIÇÃO (MANTIDAS)
-async function saveNewAgent(e) {
-    e.preventDefault();
-    const user = netlifyIdentity.currentUser();
-    if (!user) { alert('Faça login.'); return; }
+    // Carrega a lista de agentes do DB
+    async loadAgentsList(user) {
+        const select = document.getElementById('agent-select');
+        select.innerHTML = '<option value="1">Carregando Agentes...</option>';
 
-    const form = e.target;
-    const formMessage = document.getElementById('form-message');
-    formMessage.textContent = 'Salvando...';
-
-    const newAgent = {
-        AgentName: document.getElementById('agent-name-input').value,
-        agentFunction: document.getElementById('agent-function-input').value,
-        systemPrompt: document.getElementById('system-prompt').value,
-        shouldSearchPrompt: document.getElementById('search-prompt').value,
-        createdBy: user.email // Garante que o criador é o usuário logado
-    };
-
-    try {
-        const token = await user.jwt();
-        const response = await fetch('/.netlify/functions/createAgent', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` 
-            },
-            body: JSON.stringify(newAgent)
+        if (!user) {
+             this.agentsList = [{ AgentID: 1, AgentName: "Assistente Padrão (Sem Login)", agentFunction: "Assistente básico.", createdBy: "sistema", systemPrompt: "...", shouldSearchPrompt: "..." }];
+        } else {
+             try {
+                const response = await fetch('/.netlify/functions/getAgents', {
+                    headers: { 'Authorization': `Bearer ${user.token.access_token}` }
+                });
+                
+                if (response.ok) {
+                    this.agentsList = await response.json();
+                } else {
+                    console.error('Erro ao carregar lista de agentes do DB:', response.status);
+                    this.agentsList = [{ AgentID: 1, AgentName: "Erro de Conexão", agentFunction: "Agente de fallback.", createdBy: "sistema", systemPrompt: "...", shouldSearchPrompt: "..." }];
+                }
+             } catch (error) {
+                 console.error('Erro de rede ao carregar lista de agentes:', error);
+                 this.agentsList = [{ AgentID: 1, AgentName: "Erro de Rede", agentFunction: "Agente de fallback.", createdBy: "sistema", systemPrompt: "...", shouldSearchPrompt: "..." }];
+             }
+        }
+        
+        // Preenche o <select>
+        select.innerHTML = '';
+        this.agentsList.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.AgentID;
+            option.textContent = agent.AgentName;
+            select.appendChild(option);
         });
 
-        if (response.ok) {
-            const data = await response.json();
-            formMessage.textContent = `✅ Agente '${data.AgentName}' criado com sucesso!`;
-            form.reset();
-            agent.hideForm();
-            await loadAgentsList(); // Recarrega a lista para mostrar o novo agente
-            // Define o novo agente como selecionado
-            agent.selectedAgentId = data.AgentID; 
-            document.getElementById('agent-select').value = data.AgentID;
-            agent.controlAgentButtons(data.AgentID);
-        } else {
-            const errorData = await response.json();
-            formMessage.textContent = `❌ Erro ao criar: ${errorData.error || response.statusText}`;
+        // Seleciona o agente correto (mantendo o selecionado ou o padrão)
+        const initialAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId) || this.agentsList[0];
+        if (initialAgent) {
+             this.selectedAgentId = initialAgent.AgentID;
+             select.value = this.selectedAgentId;
+             
+             // Carrega o histórico para o agente inicial
+             await this.loadHistory(user); 
         }
-    } catch (error) {
-        console.error('Erro de rede:', error);
-        formMessage.textContent = '❌ Erro de rede ao criar agente.';
+
+        this.controlAgentButtons(parseInt(this.selectedAgentId));
+        this.updateCreatorInfo(); 
+        this.updateAgentInfo();
+        
+        return this.agentsList.length > 0;
+    }
+
+    // Atualiza o display de função
+    updateAgentInfo() {
+        const agent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
+        const functionDisplay = document.getElementById('agent-function-display');
+        if (functionDisplay) {
+             functionDisplay.textContent = agent ? (agent.agentFunction || 'N/A') : 'Agente não carregado.';
+        }
+    }
+    
+    // Atualiza o display de e-mail do criador
+    updateCreatorInfo() {
+        const creatorSpan = document.getElementById('creator-email');
+        const selectedAgent = this.agentsList.find(a => a.AgentID == this.selectedAgentId);
+        if (creatorSpan) {
+             creatorSpan.textContent = selectedAgent ? (selectedAgent.createdBy || 'Sistema') : 'N/A';
+        }
+    }
+
+    // Controla a visibilidade dos botões Deletar/Editar
+    controlAgentButtons(selectedId) {
+        const deleteButton = document.getElementById('delete-agent-btn');
+        const editButton = document.getElementById('edit-agent-btn');
+        const user = netlifyIdentity.currentUser();
+
+        const isStandardAgent = selectedId <= 1 || isNaN(selectedId);
+        const isCreatedByCurrentUser = user && this.agentsList.find(a => a.AgentID == selectedId)?.createdBy === user.email;
+
+        deleteButton.disabled = isStandardAgent || !isCreatedByCurrentUser;
+        editButton.disabled = isStandardAgent || !isCreatedByCurrentUser;
+    }
+
+    // Esconde o formulário de criação/edição
+    hideForm() {
+         document.getElementById('agent-form-container').style.display = 'none';
+    }
+    
+    // Preenche o formulário com dados do agente para edição
+    fillAgentFormForEdit(agent) {
+        document.getElementById('agent-id-input').value = agent.AgentID;
+        document.getElementById('agent-name-input').value = agent.AgentName;
+        document.getElementById('agent-function-input').value = agent.agentFunction;
+        document.getElementById('system-prompt').value = agent.systemPrompt;
+        document.getElementById('search-prompt').value = agent.shouldSearchPrompt;
+
+        document.getElementById('agent-form-title').textContent = `Editar Agente: ${agent.AgentName}`;
+        document.getElementById('save-agent-btn').textContent = 'Salvar Alterações';
+        
+        // Remove listeners antigos e adiciona o de edição
+        const form = document.getElementById('agent-form');
+        form.removeEventListener('submit', saveNewAgent); 
+        form.removeEventListener('submit', updateExistingAgent); 
+        form.addEventListener('submit', updateExistingAgent);
+        
+        document.getElementById('form-message').textContent = '';
+        document.getElementById('agent-form-container').style.display = 'block';
     }
 }
 
-async function updateExistingAgent(e) {
-    e.preventDefault();
+// Instância do Gerenciador
+const agent = new AgentManager();
+
+// =========================================================
+// FUNÇÕES GLOBAIS DE CHAT E LÓGICA DE AGENTE
+// =========================================================
+
+// Função global para carregar a lista de agentes (usada em login/logout e DOMContentLoaded)
+async function loadAgentsList() {
     const user = netlifyIdentity.currentUser();
-    if (!user) { alert('Faça login.'); return; }
-
-    const formMessage = document.getElementById('form-message');
-    formMessage.textContent = 'Atualizando...';
-    
-    const agentId = parseInt(document.getElementById('agent-id-input').value);
-    
-    // Verifica se o usuário logado é o criador antes de enviar
-    const selectedAgent = agent.agentsList.find(a => a.AgentID == agentId);
-    if (!selectedAgent || selectedAgent.createdBy !== user.email) {
-        formMessage.textContent = "❌ Você não tem permissão para editar este agente.";
-        return;
-    }
-
-    const updatedAgent = {
-        AgentID: agentId,
-        AgentName: document.getElementById('agent-name-input').value,
-        agentFunction: document.getElementById('agent-function-input').value,
-        systemPrompt: document.getElementById('system-prompt').value,
-        shouldSearchPrompt: document.getElementById('search-prompt').value,
-    };
-
     try {
-        const token = await user.jwt();
-        const response = await fetch('/.netlify/functions/updateAgent', {
-            method: 'PUT',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` 
-            },
-            body: JSON.stringify(updatedAgent)
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            formMessage.textContent = `✅ Agente '${data.AgentName}' atualizado com sucesso!`;
-            agent.hideForm();
-            await loadAgentsList(); // Recarrega a lista
-        } else if (response.status === 403) {
-             formMessage.textContent = "❌ Acesso negado. Você não é o criador deste agente.";
-        } else {
-            const errorData = await response.json();
-            formMessage.textContent = `❌ Erro ao atualizar: ${errorData.error || response.statusText}`;
-        }
-    } catch (error) {
-        console.error('Erro de rede:', error);
-        formMessage.textContent = '❌ Erro de rede ao atualizar agente.';
+        await agent.loadAgentsList(user);
+        
+        // Exibe o chat com o histórico carregado ou mensagem inicial
+        const initialAgent = agent.agentsList.find(a => a.AgentID == agent.selectedAgentId) || { AgentName: 'Agente' };
+        agent.displayChatHistory(false, initialAgent.AgentName);
+    } catch (e) {
+        console.error('Erro ao carregar lista de agentes:', e);
     }
 }
 
 
-// FUNÇÃO: Envio de Mensagem (MANTIDA)
+// Função principal para envio de mensagem
 async function sendMessage() {
     const input = document.getElementById('user-input');
     const message = input.value.trim();
     
-    if (!netlifyIdentity.currentUser()) {
+    const user = netlifyIdentity.currentUser();
+
+    if (!user) {
         alert('Por favor, faça login para enviar mensagens.');
         netlifyIdentity.open();
         return;
     }
 
     if (message) {
-        addMessageToChat('user', message);
+        addMessageToChat('user', message); // Adiciona e salva no cache local
         input.value = '';
         input.disabled = true;
         
@@ -547,13 +368,19 @@ async function sendMessage() {
         document.getElementById('chat-messages').appendChild(loadingDiv);
         
         try {
+            // 1. Envia a mensagem e recebe a resposta
             const response = await agent.sendMessage(message);
             
             loadingDiv.remove();
-            addMessageToChat('assistant', response);
+            addMessageToChat('assistant', response); // Adiciona e salva no cache local
+            
+            // 2. ✅ NOVO PASSO: Salva o histórico persistente no DB
+            await agent.saveHistory(user); 
+            
         } catch (error) {
             loadingDiv.remove();
-            addMessageToChat('assistant', 'Erro ao processar sua mensagem.');
+            addMessageToChat('assistant', `Erro ao processar sua mensagem: ${error.message}`);
+            console.error(error);
         }
         
         input.disabled = false;
@@ -561,53 +388,113 @@ async function sendMessage() {
     }
 }
 
-// FUNÇÃO: Deletar Agente (MODIFICADA para limpar o cache)
+
+// =========================================================
+// FUNÇÕES DE GERENCIAMENTO DE AGENTES (CRUD - Front-end)
+// =========================================================
+
+// Função para salvar um novo agente
+async function saveNewAgent(e) { 
+    e.preventDefault();
+    const user = netlifyIdentity.currentUser();
+    
+    if (!user) { alert('Faça login para criar agentes.'); return; }
+    
+    const newAgentData = {
+        AgentName: document.getElementById('agent-name-input').value,
+        agentFunction: document.getElementById('agent-function-input').value,
+        systemPrompt: document.getElementById('system-prompt').value,
+        shouldSearchPrompt: document.getElementById('search-prompt').value,
+        createdBy: user.email 
+    };
+    
+    try {
+        const response = await fetch('/.netlify/functions/createAgent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.token.access_token}` },
+            body: JSON.stringify(newAgentData)
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            document.getElementById('form-message').textContent = `Agente "${data.AgentName}" criado com sucesso!`;
+            agent.hideForm();
+            agent.selectedAgentId = data.AgentID; // Seleciona o novo agente
+            await agent.loadAgentsList(user); // Recarrega a lista
+        } else {
+             document.getElementById('form-message').textContent = `Erro: ${data.error || 'Falha ao criar agente.'}`;
+        }
+    } catch (error) { 
+        document.getElementById('form-message').textContent = 'Erro de rede ao criar agente.';
+    }
+}
+
+// Função para atualizar um agente existente
+async function updateExistingAgent(e) { 
+    e.preventDefault();
+    const user = netlifyIdentity.currentUser();
+
+    if (!user) { alert('Faça login para editar agentes.'); return; }
+    
+    const updatedAgentData = {
+        AgentID: document.getElementById('agent-id-input').value,
+        AgentName: document.getElementById('agent-name-input').value,
+        agentFunction: document.getElementById('agent-function-input').value,
+        systemPrompt: document.getElementById('system-prompt').value,
+        shouldSearchPrompt: document.getElementById('search-prompt').value,
+    };
+    
+    try {
+        const response = await fetch('/.netlify/functions/updateAgent', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.token.access_token}` },
+            body: JSON.stringify(updatedAgentData)
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            document.getElementById('form-message').textContent = `Agente "${data.AgentName}" atualizado com sucesso!`;
+            agent.hideForm();
+            await agent.loadAgentsList(user); // Recarrega a lista
+        } else {
+             document.getElementById('form-message').textContent = `Erro: ${data.error || 'Falha ao atualizar agente.'}`;
+        }
+    } catch (error) { 
+        document.getElementById('form-message').textContent = 'Erro de rede ao atualizar agente.';
+    }
+}
+
+// Função para deletar o agente selecionado
 async function deleteSelectedAgent() {
     const user = netlifyIdentity.currentUser();
-    const agentId = agent.selectedAgentId;
-    
-    if (!user || agentId <= 1) {
-        alert('Operação não permitida.');
-        return;
-    }
+    const agentIdToDelete = agent.selectedAgentId;
+    const agentName = agent.agentsList.find(a => a.AgentID == agentIdToDelete)?.AgentName || 'este agente';
 
-    const selectedOption = document.getElementById('agent-select').querySelector(`option[value="${agentId}"]`);
-    const agentName = selectedOption ? selectedOption.textContent : `ID ${agentId}`;
-
-    if (!confirm(`Tem certeza que deseja DELETAR o Agente '${agentName}'? Esta ação é irreversível e deletará também TODO O HISTÓRICO DE CHAT dele com TODOS os usuários.`)) {
+    if (!user || agentIdToDelete <= 1 || !agent.agentsList.find(a => a.AgentID == agentIdToDelete)?.createdBy === user.email) {
+        alert('Você não tem permissão para deletar este agente.');
         return;
     }
     
-    // Verifica se o usuário logado é o criador antes de enviar
-    const selectedAgent = agent.agentsList.find(a => a.AgentID == agentId);
-    if (!selectedAgent || selectedAgent.createdBy !== user.email) {
-        alert("Você não tem permissão para deletar este agente.");
+    if (!confirm(`Tem certeza que deseja deletar o agente "${agentName}"?`)) {
         return;
     }
 
     try {
-        const token = await user.jwt();
-        const response = await fetch(`/.netlify/functions/deleteAgent?agentId=${agentId}`, {
+        const response = await fetch(`/.netlify/functions/deleteAgent?agentId=${agentIdToDelete}`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${user.token.access_token}` }
         });
 
         if (response.ok) {
-            alert(`✅ Agente '${agentName}' deletado com sucesso!`);
+            alert(`Agente "${agentName}" deletado com sucesso.`);
             
-            // ✅ NOVO: Remove o histórico do localStorage do usuário atual
-            const historyKey = agent.generateStorageKey(user);
-            if(historyKey) {
-                localStorage.removeItem(historyKey);
-            }
-            
-            // Recarrega a lista
-            await loadAgentsList(); 
-        } else if (response.status === 404) {
-             alert(`Agente ID ${agentId} não encontrado.`);
+            // Seleciona o agente padrão e recarrega a lista
+            agent.selectedAgentId = 1;
+            document.getElementById('agent-select').value = 1;
+            await agent.loadAgentsList(user); 
         } else {
             const errorData = await response.json();
-            alert(`❌ Erro ao deletar: ${errorData.error || 'Erro de servidor.'}`);
+            alert(`Erro ao deletar: ${errorData.error || 'Erro de servidor.'}`);
         }
     } catch (error) {
         console.error('Erro de rede ao deletar agente:', error);
@@ -615,24 +502,59 @@ async function deleteSelectedAgent() {
     }
 }
 
-// Lógica de identidade Netlify para carregar a lista ao fazer login/logout (mantida)
+
+// =========================================================
+// INICIALIZAÇÃO E LISTENERS DE EVENTOS
+// =========================================================
+
+// Lógica de identidade Netlify para carregar a lista ao fazer login/logout
+netlifyIdentity.on('init', (user) => {
+    // Exibe o status inicial do login/logout
+    const statusDiv = document.getElementById('netlify-identity-status');
+    if (user) {
+        statusDiv.innerHTML = `Logado como: <strong>${user.email}</strong>`;
+        loadAgentsList();
+    } else {
+        statusDiv.innerHTML = `<span style="color: red;">Deslogado.</span> <a href="#" data-netlify-identity-button>Faça Login</a>`;
+        loadAgentsList(); // Carrega com agente de fallback
+    }
+});
+
 netlifyIdentity.on('login', loadAgentsList);
 netlifyIdentity.on('logout', loadAgentsList);
 document.addEventListener('DOMContentLoaded', loadAgentsList);
+
+
+// Event listeners do chat
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 document.getElementById('user-input').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
         sendMessage();
     }
 });
+
+// Event listeners de gerenciamento de agentes
 document.getElementById('delete-agent-btn').addEventListener('click', deleteSelectedAgent);
+document.getElementById('edit-agent-btn').addEventListener('click', () => {
+    const agentToEdit = agent.agentsList.find(a => a.AgentID == agent.selectedAgentId);
+    if (agentToEdit) {
+        agent.fillAgentFormForEdit(agentToEdit);
+    }
+});
+
+// Listener para o botão de criar
 document.getElementById('create-agent-btn').addEventListener('click', () => {
     // Limpa o formulário e configura para criação
     document.getElementById('agent-form').reset();
     document.getElementById('agent-form-title').textContent = 'Criar Novo Agente';
     document.getElementById('save-agent-btn').textContent = 'Salvar Agente';
-    document.getElementById('agent-form').removeEventListener('submit', updateExistingAgent);
-    document.getElementById('agent-form').addEventListener('submit', saveNewAgent); 
+    
+    // Remove listeners antigos e adiciona o de criação
+    const form = document.getElementById('agent-form');
+    form.removeEventListener('submit', updateExistingAgent);
+    form.removeEventListener('submit', saveNewAgent);
+    form.addEventListener('submit', saveNewAgent); 
+
     document.getElementById('form-message').textContent = '';
     document.getElementById('agent-form-container').style.display = 'block';
 });

@@ -4,7 +4,7 @@ const { MongoClient } = require('mongodb');
 let cachedDb = null;
 const MONGODB_URI = process.env.MONGO_URI;
 const DB_NAME = 'ai_agents_db'; 
-const COLLECTION_NAME = 'chat_history'; // Coleção sugerida
+const COLLECTION_NAME = 'chat_history'; // ✅ Coleção de histórico sugerida
 
 // Função de conexão
 async function connectToDatabase(uri) {
@@ -53,7 +53,7 @@ exports.handler = async (event, context) => {
         const db = await connectToDatabase(MONGODB_URI);
         const collection = db.collection(COLLECTION_NAME);
 
-        // 3. Busca o histórico específico para este usuário e agente
+        // 3. Busca o histórico específico para este usuário (email) e este agente (ID)
         const historyRecord = await collection.findOne({ 
             agentId: agentId,
             userEmail: userEmail
@@ -67,7 +67,7 @@ exports.handler = async (event, context) => {
                 body: JSON.stringify({ chatHistory: historyRecord.chatHistory }),
             };
         } else {
-            // 4. Retorna 404 se não houver histórico para sinalizar ao frontend que é um novo chat
+            // 4. Retorna 404 para que o frontend (script.js) saiba que é um novo chat
             return {
                 statusCode: 404,
                 headers,
