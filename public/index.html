@@ -40,128 +40,103 @@
         }
 
         .user-message {
-            background: #007bff;
+            background-color: #007bff;
             color: white;
             margin-left: auto;
             text-align: right;
         }
 
         .assistant-message {
-            background: #e9ecef;
+            background-color: #e9e9eb;
             color: #333;
+            margin-right: auto;
+            text-align: left;
+        }
+        
+        /* Estilos para o link de login do Netlify Identity */
+        #netlify-identity-status {
+            text-align: right;
+            margin-bottom: 20px;
         }
 
         .input-container {
             display: flex;
-            gap: 10px;
+            margin-top: 10px;
         }
 
         #user-input {
-            flex: 1;
+            flex-grow: 1;
             padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px 0 0 5px;
+            font-size: 16px;
         }
 
         #send-btn {
-            padding: 10px 20px;
-            background: #007bff;
+            padding: 10px 15px;
+            background-color: #007bff;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 0 5px 5px 0;
             cursor: pointer;
+            font-size: 16px;
         }
 
         #send-btn:hover {
-            background: #0056b3;
+            background-color: #0056b3;
         }
 
-        /* Estilos para Gestão de Agentes */
-        .agent-management-bar {
-            margin-bottom: 15px; 
-            display: flex; 
-            align-items: center;
-            gap: 10px;
+        /* Estilos do Formulário de Agente */
+        #agent-form-container {
+            padding: 15px;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            background-color: #fffde7;
         }
-        .agent-management-bar label {
-            white-space: nowrap;
+        .form-group {
+            margin-bottom: 15px;
         }
-        #agent-select {
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .form-group input[type="text"], .form-group textarea {
+            width: 100%;
             padding: 8px;
             border: 1px solid #ccc;
-            border-radius: 5px;
-            width: 100%;
-        }
-        .agent-info {
-            font-size: 0.9em; 
-            margin-bottom: 10px;
-        }
-        #create-agent-form-container {
-            border: 1px solid #ddd; 
-            padding: 15px; 
-            border-radius: 5px; 
-            margin-bottom: 20px; 
-            background-color: #f8f9fa;
-        }
-        .agent-management-buttons {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            margin-top: 5px;
+            border-radius: 4px;
+            box-sizing: border-box; /* Garante que padding e borda não aumentem a largura total */
         }
     </style>
 </head>
 
 <body>
     <div class="chat-container">
-        <h1>💊 Plataforma de Agentes IA</h1>
+        <h1>Plataforma de Agentes IA</h1>
+        
         <div data-netlify-identity-menu></div>
+        <div id="netlify-identity-status"></div>
 
-        <div class="agent-management-bar">
-            <label for="agent-select">Agente Ativo:</label>
-            <select id="agent-select"></select>
-
-            <button id="toggle-form-btn"
-                style="padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                title="Criar Novo Agente">Novo
-            </button>
-            <button id="edit-agent-btn"
-                style="padding: 5px 10px; background: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                title="Editar o agente selecionado" disabled>Editar
-            </button>
-            <button id="delete-agent-btn"
-                style="padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                title="Deletar o agente selecionado" disabled>Deletar
-            </button>
-        </div>
-
-        <div class="agent-info">
-            <p>Criado por: <span id="creator-email">N/D</span></p>
-            <p>Função: <span id="agent-function">N/D</span></p>
-        </div>
-        <div id="create-agent-form-container" style="display: none;">
-            <h3><span id="form-title">Criar Novo</span> Agente</h3>
-            <form id="agent-form"> 
-                <input type="hidden" id="agent-id-field" value="">
-
-                <div style="margin-bottom: 10px;">
-                    <label for="agent-name">Nome do Agente:</label>
-                    <input type="text" id="agent-name" required style="width: 100%; padding: 8px; margin-top: 5px;">
+        <div id="agent-form-container" style="display: none; margin-bottom: 20px;">
+            <h2 id="agent-form-title" style="margin-top: 0;"></h2>
+            <form id="agent-form">
+                <input type="hidden" id="agent-id-input" value="">
+                
+                <div class="form-group">
+                    <label for="agent-name-input">Nome do Agente:</label>
+                    <input type="text" id="agent-name-input" required>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label for="agent-function-input">Função/Descrição:</label>
-                    <textarea id="agent-function-input" required
-                        style="width: 100%; padding: 8px; margin-top: 5px;"></textarea>
+                <div class="form-group">
+                    <label for="agent-function-input">Função (Breve descrição):</label>
+                    <input type="text" id="agent-function-input" required>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label for="system-prompt">Prompt do Sistema (Persona):</label>
-                    <textarea id="system-prompt" required
-                        style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex. Você é um Assistente farmacêutico 
-                    especializado em medicamentos e dosagens. 
-                    Use a ferramenta de busca quando precisar de informações atualizadas ou específicas.
-                    Seja claro, conciso e forneça informações precisas.</textarea>
+                <div class="form-group">
+                    <label for="system-prompt">Prompt do Sistema (Instruções detalhadas):</label>
+                    <textarea id="system-prompt" rows="5" required
+                        style="width: 100%; padding: 8px; margin-top: 5px;">Você é um Assistente Farmacêutico. Seja conciso e forneça informações precisas.</textarea>
                 </div>
-                <div style="margin-bottom: 15px;">
+                <div class="form-group">
                     <label for="search-prompt">Prompt de Decisão de Busca:</label>
                     <textarea id="search-prompt" required
                         style="width: 100%; padding: 8px; margin-top: 5px; height: 100px;">Ex.: Analise se esta pergunta sobre medicamentos precisa de busca por informações atualizadas:
@@ -181,8 +156,34 @@
             </form>
         </div>
 
-        <div id="chat-messages">
+        <div class="agent-selection-container" style="margin-bottom: 20px;">
+            <label for="agent-select" style="font-weight: bold; margin-right: 10px;">Agente Selecionado:</label>
+            <select id="agent-select" style="padding: 8px; border-radius: 5px; border: 1px solid #ccc; margin-right: 15px;">
+                <option value="1">Carregando Agentes...</option> 
+            </select>
+            
+            <button id="create-agent-btn" 
+                style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                ➕ Criar
+            </button>
+            <button id="edit-agent-btn" disabled
+                style="padding: 8px 12px; background: #ffc107; color: #333; border: none; border-radius: 5px; cursor: pointer;">
+                ✏️ Editar
+            </button>
+            <button id="delete-agent-btn" disabled
+                style="padding: 8px 12px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                🗑️ Deletar
+            </button>
+            
+            <div class="agent-details" style="margin-top: 10px; padding: 10px; border: 1px dashed #ddd; border-radius: 5px;">
+                <p style="margin: 0;">**Função:** <span id="agent-function-display" style="font-weight: normal;"></span></p>
+                <p style="margin: 5px 0 0 0;">**Criado por:** <span id="creator-email" style="font-style: italic; font-weight: normal;"></span></p>
+            </div>
         </div>
+        <hr>
+
+        <div id="chat-messages">
+            </div>
         <div class="input-container">
             <input type="text" id="user-input" placeholder="Digite sua mensagem...">
             <button id="send-btn">Enviar</button>
