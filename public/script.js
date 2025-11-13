@@ -2,66 +2,108 @@ class AgentManager {
     constructor() {
         this.chatHistory = [];
         this.apiUrl = '/.netlify/functions/agent';
-        this.selectedAgentId = 1; // ID padrão
-        this.agentsList = []; // Para armazenar a lista completa (inclui createdBy)
+        this.saveChatHistoryUrl = '/.netlify/functions/saveChatHistory'; // NOVA URL
+        this.loadChatHistoryUrl = '/.netlify/functions/loadChatHistory'; // NOVA URL
+        this.selectedAgentId = 1; 
+        this.agentsList = []; 
         
         // Listener para a seleção de agente (MODIFICADO para carregar o histórico)
-        document.getElementById('agent-select').addEventListener('change', (e) => {
+        document.getElementById('agent-select').addEventListener('change', async (e) => { // Tornar assíncrono
             this.selectedAgentId = e.target.value; 
             
-            // 1. Tenta carregar o histórico do localStorage
-            this.loadHistory(netlifyIdentity.currentUser()); // Passa o objeto User
-            
             const selectedName = e.target.options[e.target.selectedIndex].textContent;
-            
-            // 2. Exibe o histórico carregado ou a mensagem inicial
-            if (this.chatHistory.length === 0) {
-                 this.displayChatHistory(true, selectedName); 
-            } else {
-                 this.displayChatHistory(); 
-                 // Mensagem de confirmação de histórico carregado
-                 addMessageToChat('assistant', `Agente **${selectedName}** selecionado. Histórico de **${this.chatHistory.length}** mensagens carregado do cache local.`);
-            }
+
+            // NOVO: Prioriza carregar do Banco de Dados
+            const user = netlifyIdentity.currentUser();
+            await this.loadChatHistory(user, selectedName); 
             
             this.controlAgentButtons(parseInt(this.selectedAgentId));
             this.updateCreatorInfo(); 
             this.updateAgentInfo();
-            this.hideForm(); // Esconde o formulário ao trocar de agente
+            this.hideForm();
         });
     }
     
     // =================================================================
-    // ✅ MÉTODOS DE HISTÓRICO ATUALIZADOS PARA USAR O USER ID
+    // ✅ MÉTODOS DE HISTÓRICO ATUALIZADOS PARA USAR BANCO DE DADOS
     // =================================================================
     
     /**
-     * Gera a chave única de localStorage (USER + AGENT).
-     * @param {object} user - O objeto user do Netlify Identity.
-     * @returns {string} A chave única.
+     * Gera a chave de localStorage APENAS com o AgentID (para cache).
+     * @returns {string} A chave de cache local.
      */
-    generateStorageKey(user) {
-        if (!user || !user.email) return null;
-        // Limpa o email para usar como chave de forma segura
-        const safeEmail = user.email.replace(/[^a-zA-Z0-9]/g, '_');
-        return `chat_user_${safeEmail}_agent_${this.selectedAgentId}`;
+    generateLocalCacheKey() {
+        return `chat_cache_agent_${this.selectedAgentId}`;
     }
 
     /**
-     * Tenta carregar o histórico do localStorage com base no UserID e AgentID.
+     * Tenta carregar o histórico: 1. DB, 2. Local Cache.
      * @param {object} user - O objeto user do Netlify Identity.
+     * @param {string} agentName - Nome do agente para mensagens.
      */
-    loadHistory(user) {
-        const historyKey = this.generateStorageKey(user);
-        
-        if (!historyKey) {
+    async loadChatHistory(user, agentName = "Agente") {
+        if (!user) {
             this.chatHistory = [];
+            this.displayChatHistory(true, agentName);
             return;
         }
+
+        const token = await user.jwt();
+        let loadedFrom = 'Novo chat iniciado.';
         
+        // --- 1. Tentar carregar do BANCO DE DADOS ---
+        try {
+            const response = await fetch(`${this.loadChatHistoryUrl}?agentId=${this.selectedAgentId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.history && data.history.length > 0) {
+                    this.chatHistory = data.history;
+                    this.saveChatHistoryToLocal(user); // Salva no cache local para otimização
+                    loadedFrom = `Histórico de **${this.chatHistory.length}** mensagens carregado do **Banco de Dados**.`;
+                    console.log(`Histórico carregado do DB para o Agente ${this.selectedAgentId}.`);
+                } else {
+                    // Histórico vazio no DB, tenta o cache local
+                    this.loadChatHistoryFromLocalCache();
+                    loadedFrom = this.chatHistory.length > 0 ? 
+                                `Histórico de **${this.chatHistory.length}** mensagens carregado do **Cache Local** (DB vazio).` :
+                                'Novo chat iniciado.';
+                }
+            } else {
+                console.error("Falha ao carregar histórico do DB. Tentando cache local.");
+                 // Tenta o cache local em caso de erro no DB
+                this.loadChatHistoryFromLocalCache();
+                loadedFrom = this.chatHistory.length > 0 ? 
+                            `Histórico de **${this.chatHistory.length}** mensagens carregado do **Cache Local** (Erro DB).` :
+                            'Novo chat iniciado.';
+            }
+        } catch (e) {
+            console.error("Erro fatal ao carregar histórico do DB:", e);
+             // Tenta o cache local em caso de erro na rede
+            this.loadChatHistoryFromLocalCache();
+            loadedFrom = this.chatHistory.length > 0 ? 
+                        `Histórico de **${this.chatHistory.length}** mensagens carregado do **Cache Local** (Erro Fatal).` :
+                        'Novo chat iniciado.';
+        }
+        
+        // --- 2. Exibe o Histórico ---
+        this.displayChatHistory(this.chatHistory.length === 0, agentName); 
+        
+        if (this.chatHistory.length > 0) {
+             addMessageToChat('assistant', `Agente **${agentName}** selecionado. ${loadedFrom}`);
+        }
+    }
+
+    /**
+     * Carrega o histórico de chat do cache local (sem UserID).
+     */
+    loadChatHistoryFromLocalCache() {
+        const historyKey = this.generateLocalCacheKey();
         const historyString = localStorage.getItem(historyKey);
         try {
-            const history = historyString ? JSON.parse(historyString) : [];
-            this.chatHistory = history; 
+            this.chatHistory = historyString ? JSON.parse(historyString) : []; 
         } catch (e) {
             console.error("Erro ao carregar histórico local:", e);
             this.chatHistory = [];
@@ -69,18 +111,50 @@ class AgentManager {
     }
 
     /**
-     * Salva o histórico atual (em memória) no localStorage.
+     * Salva o histórico atual (em memória) no localStorage (cache local).
+     */
+    saveChatHistoryToLocal() {
+        const historyKey = this.generateLocalCacheKey();
+        localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
+    }
+    
+    /**
+     * Salva o histórico (em memória) no Banco de Dados.
      * @param {object} user - O objeto user do Netlify Identity.
      */
-    saveHistoryToLocal(user) {
-        const historyKey = this.generateStorageKey(user);
-        
-        if (!historyKey) {
-            console.error("Não foi possível salvar: Usuário não logado ou chave inválida.");
+    async saveChatHistoryToDatabase(user) {
+        if (!user) {
+            console.error("Não foi possível salvar no DB: Usuário não logado.");
             return;
         }
         
-        localStorage.setItem(historyKey, JSON.stringify(this.chatHistory));
+        try {
+            const token = await user.jwt();
+            
+            const historyData = {
+                agentId: parseInt(this.selectedAgentId),
+                userId: user.sub, // 'sub' é um bom ID de usuário único
+                history: this.chatHistory
+            };
+            
+            const response = await fetch(this.saveChatHistoryUrl, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify(historyData)
+            });
+
+            if (!response.ok) {
+                 console.error("Falha ao salvar histórico no DB:", await response.json());
+            } else {
+                 console.log("Histórico salvo com sucesso no DB.");
+            }
+            
+        } catch (e) {
+            console.error("Erro de rede/conexão ao salvar no DB:", e);
+        }
     }
     
     /**
@@ -94,7 +168,6 @@ class AgentManager {
 
         if (initialMessage) {
             const htmlContent = `Agente **${agentName}** selecionado. Novo chat iniciado.`;
-            // Adiciona quebra de linha para formatar o nome do agente em negrito
             chatMessages.innerHTML = 
                 `<div class="message assistant-message">${htmlContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</div>`;
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -111,9 +184,9 @@ class AgentManager {
     // =================================================================
     // FIM DOS MÉTODOS DE HISTÓRICO
     // =================================================================
-
-
-    // ✅ NOVO MÉTODO: Controla os botões Deletar e Editar
+    
+    // ... (controlAgentButtons, updateCreatorInfo, updateAgentInfo, fillAgentFormForEdit, hideForm permanecem iguais)
+    
     controlAgentButtons(selectedId) {
         const deleteButton = document.getElementById('delete-agent-btn');
         const editButton = document.getElementById('edit-agent-btn');
@@ -184,7 +257,7 @@ class AgentManager {
         document.getElementById('save-agent-btn').textContent = 'Salvar Agente';
         document.getElementById('form-message').textContent = '';
     }
-
+    
     async sendMessage(message) {
         const user = netlifyIdentity.currentUser(); 
         
@@ -223,8 +296,10 @@ class AgentManager {
                     { role: "assistant", content: data.response }
                 );
                 
-                // ✅ NOVO: Salva o histórico no localStorage (inclui USER ID)
-                this.saveHistoryToLocal(user); 
+                // ✅ NOVO: Salva o histórico no localStorage (cache local)
+                this.saveChatHistoryToLocal(); 
+                // ✅ NOVO: Salva o histórico no Banco de Dados
+                this.saveChatHistoryToDatabase(user);
                 
                 return data.response;
             }
@@ -332,14 +407,8 @@ async function loadAgentsList() {
             agent.updateCreatorInfo(); 
             agent.updateAgentInfo(); 
             
-            // ✅ NOVO: Carrega e exibe o histórico para o agente inicial (inclui USER ID)
-            agent.loadHistory(user);
-            if (agent.chatHistory.length === 0) {
-                 agent.displayChatHistory(true, selectedName); 
-            } else {
-                 agent.displayChatHistory(); 
-                 addMessageToChat('assistant', `Agente **${selectedName}** carregado. Histórico de **${agent.chatHistory.length}** mensagens carregado do cache local.`);
-            }
+            // ✅ NOVO: Carrega o histórico para o agente inicial (Prioriza DB)
+            await agent.loadChatHistory(user, selectedName);
             
         } else {
              selectElement.innerHTML = '<option value="1">Assistente Padrão (DB Vazio)</option>';
@@ -361,6 +430,8 @@ async function loadAgentsList() {
         agent.selectedAgentId = 1;
     }
 }
+
+// ... (Restante do código, incluindo listeners de formulário e chat, permanece igual)
 
 // Listener para mostrar/esconder o formulário
 document.getElementById('toggle-form-btn').addEventListener('click', () => {
@@ -563,10 +634,12 @@ async function deleteSelectedAgent() {
             alert(`✅ Agente '${agentName}' deletado com sucesso!`);
             
             // ✅ NOVO: Remove o histórico do localStorage do usuário atual
-            const historyKey = agent.generateStorageKey(user);
+            const historyKey = agent.generateLocalCacheKey();
             if(historyKey) {
                 localStorage.removeItem(historyKey);
             }
+            // NOVO: Chamada para deletar do DB (se existir a função)
+            await deleteHistoryFromDatabase(user, agentId);
             
             loadAgentsList(); 
         } else {
@@ -580,6 +653,13 @@ async function deleteSelectedAgent() {
     } finally {
         deleteButton.disabled = false;
     }
+}
+
+// NOVO: Função para deletar o histórico de um agente do DB (opcional, requer outra função Netlify)
+async function deleteHistoryFromDatabase(user, agentId) {
+    // Você precisaria de outra função Netlify para isso, se quisesse apagar o histórico no delete do agente.
+    // Exemplo: fetch(`/.netlify/functions/deleteHistory?agentId=${agentId}&userId=${user.sub}`, { method: 'DELETE', ... });
+    console.log(`Função para deletar histórico do agente ${agentId} do DB precisa ser implementada.`);
 }
 
 
